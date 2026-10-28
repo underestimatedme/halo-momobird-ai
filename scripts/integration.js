@@ -698,13 +698,14 @@ async function main() {
         cells.push(what + ' ' + r.status);
         if (keyLeaks(r.text).length > 0) hits.push(label + ': ' + what + ' (' + r.status + ')');
         if (/Secret/.test(what)) must(r.status === (user ? 403 : 401), label + ' reading ' + what + ' got ' + r.status);
-        if (label === 'plugin view only' && what === 'plugin config' && r.status === 200 && r.text.indexOf(SECRET) !== -1) viewSawSettings = true;
+        // 2.17 serves the settings at /config, newer versions at /json-config (/config answers 404 there).
+        if (label === 'plugin view only' && /^plugin (json-)?config$/.test(what) && r.status === 200 && r.text.indexOf(SECRET) !== -1) viewSawSettings = true;
       }
       rows.push(label + ': ' + cells.join(', '));
     }
     must(hits.length === 0, 'the key was readable: ' + hits.join('; '));
     // Preconditions: the endpoints were real (Plugin View does read the settings, and they name the Secret), and the Secret does hold the key.
-    must(viewSawSettings, 'precondition: Plugin View could not read the plugin config, or it does not name the Secret; ' + rows[1]);
+    must(viewSawSettings, 'precondition: Plugin View could not read the plugin settings (config or json-config), or they do not name the Secret; ' + rows[1]);
     const asAdmin = await halo.api('GET', '/api/v1alpha1/secrets/' + SECRET);
     must(asAdmin.status === 200 && asAdmin.text.indexOf(KEY) !== -1, 'precondition: the super administrator does not read the key from the Secret (' + asAdmin.status + ')');
     return rows.join('\n') + '\nno response held the key; Plugin View reads the settings (they name ' + SECRET + ' only); the super administrator reads the key from the Secret (200)';
@@ -762,13 +763,13 @@ async function main() {
   }
 
   // ------------------------------------------------------------------ 4: disabling stops everything
-  const threads = () => {
-    const r = L.docker(['exec', halo.name, 'sh', '-c', 'cat /proc/[0-9]*/task/*/comm 2>/dev/null | grep -c momobird || true']);
-    return parseInt(r.stdout.trim(), 10);
-  };
+  // The sync thread (momobird-sync) and Halo's controller thread for the plugin's post watcher (named after its class, ai.momobird...).
+  const threadNames = () => L.docker(['exec', halo.name, 'sh', '-c', 'cat /proc/[0-9]*/task/*/comm 2>/dev/null | grep momobird || true']).stdout.trim().split('\n').filter(Boolean);
+  const threads = () => threadNames().length;
   let offWarm = null;
   await step('4.4', 'disabling the plugin stops its threads and any further request to MomoBird; enabling it again starts a fresh service', async () => {
-    const threadsOn = threads();
+    const namesOn = threadNames();
+    const threadsOn = namesOn.length;
     const startLines = logCount(halo, '\\[MomoBird\\] 同步服务已启动');
     await halo.patchPost(Q.pub, (p) => { p.spec.title = '停用前改的标题'; });
     await halo.setPlugin(false);
@@ -781,6 +782,8 @@ async function main() {
       post: await timing('without (warm)', '/archives/' + Q.pub, 30, 6)
     };
     await halo.patchPost(Q.pub, (p) => { p.spec.title = '停用后改的标题'; });
+    // an annotation change while disabled must not reach MomoBird either (the post watcher stopped with the plugin)
+    await halo.patchPost(NEW.a, (p) => { p.metadata.annotations = Object.assign({}, p.metadata.annotations || {}, { 'momobird.ai/exclude': 'true' }); });
     await sleep(9000);
     const later = await mock.count();
     const phase = await halo.pluginPhase();
@@ -790,13 +793,16 @@ async function main() {
     must(threadsOn > 0, 'precondition: no momobird thread was visible while the plugin ran (' + threadsOn + '), so "none after disabling" would prove nothing');
     must(threadsOff === 0, 'plugin threads still alive after disabling: ' + threadsOff + ' (before: ' + threadsOn + ')');
     must(titleSeen !== '停用后改的标题', 'a change made while disabled was pushed');
+    must((await idsNow()).indexOf(postId(NEW.a)) !== -1, 'the exclude mark added while disabled took the post down');
     await halo.setPlugin(true);
     await waitFor('the second start line', async () => logCount(halo, '\\[MomoBird\\] 同步服务已启动') === startLines + 1, { timeout: 20000 });
     await halo.patchPost(Q.pub, (p) => { p.spec.title = '重新启用后改的标题'; });
     await waitFor('a push after enabling again', async () => (await titleOf(Q.pub)) === '重新启用后改的标题', { timeout: 30000 })
       .catch(async () => fail('no push after enabling again; title ' + (await titleOf(Q.pub))));
-    return 'momobird threads: ' + threadsOn + ' running, ' + threadsOff + ' after disabling; requests after disabling: 0 (' + after + ' -> ' + later
-      + ' over 9 s, with two title changes); phase ' + phase + '; enabling again logged the start line a second time and the next change was pushed';
+    // put the post back as it was (MomoBird still holds it, as it never saw the mark)
+    await halo.patchPost(NEW.a, (p) => { delete p.metadata.annotations['momobird.ai/exclude']; });
+    return 'momobird threads: ' + threadsOn + ' running (' + namesOn.join(', ') + '), ' + threadsOff + ' after disabling; requests after disabling: 0 (' + after + ' -> ' + later
+      + ' over 9 s, with two title changes and an exclude mark added); phase ' + phase + '; enabling again logged the start line a second time and the next change was pushed';
   });
 
   await step('7.2', 'rendering cost against the warmed-up baseline (the plugin disabled, same pages, same JVM)', async () => {

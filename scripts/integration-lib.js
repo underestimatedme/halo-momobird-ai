@@ -258,6 +258,9 @@ class Halo {
 
   // Replaces the plugin's setting groups (each group is a JSON string in the ConfigMap).
   async writeSettings(groups) {
+    // Halo creates the plugin's ConfigMap a moment after the install answers (2.27 sometimes later than the next call).
+    await waitFor('the plugin ConfigMap', async () => (await this.api('GET', '/api/v1alpha1/configmaps/momobird-ai-configmap')).status === 200, { timeout: 30000 })
+      .catch(() => {});
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const current = await this.api('GET', '/api/v1alpha1/configmaps/momobird-ai-configmap');
       if (current.status !== 200) throw new Error('configmap answered ' + current.status);
