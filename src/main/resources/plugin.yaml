@@ -8,6 +8,8 @@ spec:
   enabled: true
   version: 0.1.0
   requires: ">=2.17.0"
+  settingName: momobird-ai-settings
+  configMapName: momobird-ai-configmap
   author:
     name: MomoBird
     website: https://momobird.com

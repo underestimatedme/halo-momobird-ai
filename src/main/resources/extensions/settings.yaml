@@ -1,0 +1,49 @@
+apiVersion: v1alpha1
+kind: Setting
+metadata:
+  name: momobird-ai-settings
+spec:
+  forms:
+    - group: connection
+      label: 连接
+      formSchema:
+        - $formkit: text
+          name: baseUrl
+          label: Base URL
+          value: https://api.valley.atlaspaces.com
+          help: MomoBird 接口地址，必须是 HTTPS。一般不用改。
+          validation: required
+        - $formkit: password
+          name: key
+          label: 连接密钥
+          help: 在 MomoBird 控制台的知识源页面生成，以 mbk_ 开头。只有能管理插件设置的管理员看得到，插件的任何接口和页面都不会返回它。
+    - group: widget
+      label: 问答助手
+      formSchema:
+        - $formkit: checkbox
+          name: enabled
+          label: 在站点上显示问答助手
+          value: false
+          help: 开启后，访客可以在每个页面右下角（或左下角）向文章提问。第一次同步完成并建好索引后才会真正显示。
+        - $formkit: select
+          name: position
+          label: 按钮位置
+          value: right
+          options:
+            - value: right
+              label: 右下
+            - value: left
+              label: 左下
+    - group: podcast
+      label: 播客
+      formSchema:
+        - $formkit: checkbox
+          name: player
+          label: 在文章页显示播客播放器
+          value: true
+          help: 文章同步到 MomoBird 后，访客可以直接收听文章的 AI 播客。
+        - $formkit: checkbox
+          name: transcript
+          label: 显示文字稿
+          value: false
+          help: 在播放器下方显示播客的文字稿。
