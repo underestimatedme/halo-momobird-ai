@@ -15,6 +15,8 @@ const BAD_KEY = 'mbk_WRONGKEYWRONGKEYWRONGKEYWRONGKEYWRONGKEYWR';
 const SITE_URL = 'https://halo-it.example.com';
 const SOURCE_ID = '0192a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
 const PLUGIN = 'momobird-ai';
+// The Halo Secret the test keeps the connection key in; the plugin settings only name it.
+const SECRET = 'momobird-it-key';
 const API = 'api.momobird.ai/v1alpha1';
 
 // Halo's password rule: letters, digits and !@#$%^&* only.
@@ -273,6 +275,27 @@ class Halo {
     throw new Error('configmap update kept conflicting');
   }
 
+  // Creates or replaces the Secret holding the connection key (what the settings form's secret input does).
+  async putSecret(name, key) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const current = await this.api('GET', '/api/v1alpha1/secrets/' + name);
+      if (current.status === 404) {
+        const created = await this.api('POST', '/api/v1alpha1/secrets', {
+          json: { apiVersion: 'v1alpha1', kind: 'Secret', metadata: { name, annotations: { 'secret.halo.run/description': 'MomoBird 连接密钥（集成测试）' } }, type: 'Opaque', stringData: { key } }
+        });
+        if (created.status === 201 || created.status === 200) return;
+        throw new Error('secret create answered ' + created.status + ' ' + created.text.slice(0, 200));
+      }
+      if (current.status !== 200) throw new Error('secret answered ' + current.status);
+      const secret = current.json;
+      secret.stringData = Object.assign({}, secret.stringData || {}, { key });
+      const put = await this.api('PUT', '/api/v1alpha1/secrets/' + name, { json: secret });
+      if (put.status === 200) return;
+      if (put.status !== 409) throw new Error('secret update answered ' + put.status + ' ' + put.text.slice(0, 200));
+    }
+    throw new Error('secret update kept conflicting');
+  }
+
   // ---- users and roles ----
   async createRole(name, template) {
     const r = await this.api('POST', '/api/v1alpha1/roles', {
@@ -453,6 +476,6 @@ class Mock {
 }
 
 module.exports = {
-  KEY, BAD_KEY, SITE_URL, SOURCE_ID, PLUGIN, API, ADMIN, USERS, ROLES,
+  KEY, BAD_KEY, SITE_URL, SOURCE_ID, PLUGIN, SECRET, API, ADMIN, USERS, ROLES,
   sleep, postId, median, percentile, docker, dockerOk, request, basic, waitFor, Halo, Mock
 };

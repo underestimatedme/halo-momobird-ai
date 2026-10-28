@@ -57,14 +57,26 @@ class SettingsFormTest {
     @Test
     void fieldsMatchWhatTheLoaderReads() throws Exception {
         assertThat(fields().keySet()).containsExactly(
-            "connection.baseUrl", "connection.key",
+            "connection.baseUrl", "connection.keySecret",
             "widget.enabled", "widget.position",
             "podcast.player", "podcast.transcript");
     }
 
+    /**
+     * The key lives in a Halo Secret, which only super administrators can read: the form only holds
+     * the Secret's name. Halo 2.17 to 2.22 read {@code requiredKey}, 2.23 and later
+     * {@code requiredKeys}; both are given so the input asks for the same entry everywhere.
+     */
     @Test
-    void theKeyIsAPasswordField() throws Exception {
-        assertThat(fields().get("connection.key")).containsEntry("$formkit", "password");
+    @SuppressWarnings("unchecked")
+    void theKeyIsASecretReferenceNotAValue() throws Exception {
+        Map<String, Object> field = fields().get("connection.keySecret");
+        assertThat(field).containsEntry("$formkit", "secret")
+            .containsEntry("requiredKey", SettingsLoader.SECRET_KEY);
+        assertThat((List<Map<String, Object>>) field.get("requiredKeys"))
+            .extracting(k -> k.get("key")).containsExactly(SettingsLoader.SECRET_KEY);
+        assertThat(String.valueOf(field.get("help"))).contains("超级管理员");
+        assertThat(fields().values()).noneMatch(f -> "password".equals(f.get("$formkit")));
     }
 
     @Test

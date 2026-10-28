@@ -69,7 +69,9 @@ public record Settings(
             problems.add(urlProblem);
         }
         if (key.isEmpty()) {
-            problems.add("还没有填写连接密钥，请在 MomoBird 控制台的知识源页面生成后填入");
+            // No "mbk_" here: the integration test's leak scans look for it in every response.
+            problems.add("还没有设置连接密钥：请超级管理员在「插件 → MomoBird AI → 设置 → 连接」的「连接密钥」里"
+                + "新建一个密钥，在 key 一项粘贴 MomoBird 控制台知识源页面生成的密钥，再点「保存」");
         } else if (!KEY_SHAPE.matcher(key).matches()) {
             // Also keeps anything that is not header-safe (newline, space, non-ASCII) out of the
             // Authorization header. The message never repeats the key.

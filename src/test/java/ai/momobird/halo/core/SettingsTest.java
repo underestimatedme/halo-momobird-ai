@@ -82,7 +82,8 @@ class SettingsTest {
     void theKeyIsRequiredAndMustStartWithMbk() {
         Settings missing = Settings.of(null, "", null, null, null, null);
         assertThat(missing.validate()).hasSize(1);
-        assertThat(missing.validate().get(0)).contains("密钥");
+        // Says where the key goes now (a Halo Secret, chosen in the plugin settings) and who can set it.
+        assertThat(missing.validate().get(0)).contains("连接密钥", "插件 → MomoBird AI → 设置 → 连接", "超级管理员", "key");
 
         Settings wrong = Settings.of(null, "abc123secret", null, null, null, null);
         assertThat(wrong.validate()).hasSize(1);

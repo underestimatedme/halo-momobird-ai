@@ -33,8 +33,9 @@ rules:
     resources: ["test", "sync", "retry"]
     verbs: ["create"]
 ---
-# 2. Whoever may manage plugins may call the API too (the connection key lives in the plugin
-# settings, which only they can open). Hidden, aggregated into the built-in plugin-manage template.
+# 2. Whoever may manage plugins may call the API too (they can change the plugin settings anyway; the
+# connection key itself is in a Halo Secret, which only super administrators can read, and no answer
+# of this API holds it). Hidden, aggregated into the built-in plugin-manage template.
 # It carries no ui-permissions on purpose: the console would ignore them on a hidden role.
 apiVersion: v1alpha1
 kind: Role

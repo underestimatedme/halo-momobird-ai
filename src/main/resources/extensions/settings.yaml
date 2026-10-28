@@ -13,10 +13,20 @@ spec:
           value: https://api.valley.atlaspaces.com
           help: MomoBird 接口地址，必须是 HTTPS。一般不用改。
           validation: required
-        - $formkit: password
-          name: key
+        # The key itself goes into a Halo Secret (only super administrators can read Secrets); this
+        # field only stores the Secret's name. Halo 2.17 to 2.22 read requiredKey, 2.23 and later
+        # requiredKeys, 2.25 and later descriptionPreset: all are given, each version ignores the rest.
+        - $formkit: secret
+          name: keySecret
           label: 连接密钥
-          help: 在 MomoBird 控制台的知识源页面生成，以 mbk_ 开头。只有能管理插件设置的管理员看得到，插件的任何接口和页面都不会返回它。
+          requiredKey: key
+          requiredKeys:
+            - key: key
+              help: 粘贴 MomoBird 控制台生成的连接密钥（以 mbk_ 开头）
+          descriptionPreset: MomoBird 连接密钥
+          help: >-
+            密钥在 MomoBird 控制台的知识源页面生成，以 mbk_ 开头。它存放在 Halo 的「密钥」里，只有超级管理员能新建和查看，插件的任何接口和页面都不会返回它。
+            新版 Halo：点右侧的 ⊕ 新建密钥，在 key 一项粘贴密钥后保存；Halo 2.17 到 2.22：在框里粘贴密钥，选「根据输入的文本创建新密钥」。最后点下方的「保存」。
     - group: widget
       label: 问答助手
       formSchema:

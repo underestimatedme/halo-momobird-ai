@@ -21,7 +21,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const L = require('./integration-lib');
 
-const { KEY, BAD_KEY, SITE_URL, SOURCE_ID, ADMIN, USERS, ROLES, sleep, postId, median, percentile, waitFor, Halo, Mock, request } = L;
+const { KEY, BAD_KEY, SITE_URL, SOURCE_ID, SECRET, ADMIN, USERS, ROLES, sleep, postId, median, percentile, waitFor, Halo, Mock, request } = L;
 
 function parseArgs(argv) {
   const out = {};
@@ -225,6 +225,13 @@ function leaks(text) {
   return found;
 }
 
+// For Halo's own objects (the Setting's help text explains that keys start with "mbk_"): a key, or anything shaped like one.
+function keyLeaks(text) {
+  const found = leaks(text).filter((l) => l !== 'mbk_');
+  if (/mbk_[A-Za-z0-9_-]{16,}/.test(text)) found.push('a key-shaped mbk_ string');
+  return found;
+}
+
 async function main() {
   const halo = new Halo({
     image: 'halohub/halo:' + VERSION, name: 'halo-it-' + RUN_ID + '-' + VERSION.replace(/\./g, ''), runId: RUN_ID, version: VERSION,
@@ -233,7 +240,7 @@ async function main() {
   cleanups.push(() => halo.remove());
   const mock = await startMock('mock-' + VERSION);
   const settings = (overrides) => Object.assign({
-    connection: { baseUrl: mock.baseForHalo, key: KEY },
+    connection: { baseUrl: mock.baseForHalo, keySecret: SECRET },
     widget: { enabled: true, position: 'right' },
     podcast: { player: true, transcript: false }
   }, overrides || {});
@@ -286,6 +293,8 @@ async function main() {
 
   // ------------------------------------------------------------------ install, settings, enable
   await halo.installPlugin(JAR);
+  // The key goes into a Halo Secret (as the settings form's secret input does); the settings only name it.
+  await halo.putSecret(SECRET, KEY);
   await halo.writeSettings(settings());
   const enabledAt = Date.now();
   await halo.setPlugin(true);
@@ -549,7 +558,7 @@ async function main() {
   });
 
   await step('X.401', 'a rejected key (401): sync reports it without the key, nothing is lost; the right key works again', async () => {
-    await halo.writeSettings(settings({ connection: { baseUrl: mock.baseForHalo, key: BAD_KEY } }));
+    await halo.putSecret(SECRET, BAD_KEY);
     const before = await mock.count();
     const run = await admin(halo, 'POST', '/sync', { json: {} });
     must(run.json && run.json.ok === false, 'sync did not fail: ' + run.status + ' ' + run.text.slice(0, 200));
@@ -558,7 +567,7 @@ async function main() {
     must(leaks(run.text + test.text).length === 0, 'a key shows in the responses');
     const idsBefore = await idsNow();
     must(idsBefore.length >= 2, 'posts disappeared with a bad key');
-    await halo.writeSettings(settings());
+    await halo.putSecret(SECRET, KEY);
     const ok = await admin(halo, 'POST', '/sync', { json: {} });
     must(ok.json && ok.json.ok === true, 'sync with the right key failed: ' + ok.text.slice(0, 300));
     return 'with a wrong key: sync ok=false ("' + run.json.message + '"), test error "' + test.json.connection.error + '"; ' + (await mock.summary(before)).slice(0, 3).join('; ')
@@ -630,6 +639,42 @@ async function main() {
     const allowed = await momoCall(halo, USERS.pmanage, 'POST', '/test', { json: {} });
     must(allowed.status === 200 && allowed.json.connection.ok === true, 'plugin manager /test answered ' + allowed.status);
     return 'denied statuses ' + rows.join(',') + ', no request reached the mock; the plugin manager may POST /test (200)';
+  });
+
+  // Halo's own APIs, not the plugin's: where a user could look for the key. Plugin View may read the
+  // plugin's settings (config, json-config), so the key must not be in them; the Secret holding it
+  // must be closed to everyone but the super administrator.
+  const keyPlaces = [
+    ['plugin config', '/apis/api.console.halo.run/v1alpha1/plugins/momobird-ai/config'],
+    ['plugin json-config', '/apis/api.console.halo.run/v1alpha1/plugins/momobird-ai/json-config'],
+    ['plugin setting', '/apis/api.console.halo.run/v1alpha1/plugins/momobird-ai/setting'],
+    ['settings ConfigMap', '/api/v1alpha1/configmaps/momobird-ai-configmap'],
+    ['ConfigMap list', '/api/v1alpha1/configmaps'],
+    ['Plugin object', '/apis/plugin.halo.run/v1alpha1/plugins/momobird-ai'],
+    ['Secret list', '/api/v1alpha1/secrets'],
+    ['the key\'s Secret', '/api/v1alpha1/secrets/' + SECRET]
+  ];
+  await step('8.4', 'the key through Halo\'s own APIs: Plugin View only and ordinary users cannot obtain it anywhere; the settings hold only the Secret\'s name', async () => {
+    const rows = [];
+    const hits = [];
+    let viewSawSettings = false;
+    for (const [label, user] of [['plain user', USERS.plain], ['plugin view only', USERS.pview], ['plugin manage only', USERS.pmanage], ['MomoBird role', USERS.momo], ['anonymous', null]]) {
+      const cells = [];
+      for (const [what, p] of keyPlaces) {
+        const r = await request(halo.base, 'GET', p, { user, headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        cells.push(what + ' ' + r.status);
+        if (keyLeaks(r.text).length > 0) hits.push(label + ': ' + what + ' (' + r.status + ')');
+        if (/Secret/.test(what)) must(r.status === (user ? 403 : 401), label + ' reading ' + what + ' got ' + r.status);
+        if (label === 'plugin view only' && what === 'plugin config' && r.status === 200 && r.text.indexOf(SECRET) !== -1) viewSawSettings = true;
+      }
+      rows.push(label + ': ' + cells.join(', '));
+    }
+    must(hits.length === 0, 'the key was readable: ' + hits.join('; '));
+    // Preconditions: the endpoints were real (Plugin View does read the settings, and they name the Secret), and the Secret does hold the key.
+    must(viewSawSettings, 'precondition: Plugin View could not read the plugin config, or it does not name the Secret; ' + rows[1]);
+    const asAdmin = await halo.api('GET', '/api/v1alpha1/secrets/' + SECRET);
+    must(asAdmin.status === 200 && asAdmin.text.indexOf(KEY) !== -1, 'precondition: the super administrator does not read the key from the Secret (' + asAdmin.status + ')');
+    return rows.join('\n') + '\nno response held the key; Plugin View reads the settings (they name ' + SECRET + ' only); the super administrator reads the key from the Secret (200)';
   });
 
   let browser = null;
@@ -765,7 +810,14 @@ async function main() {
     // Halo's own plugin object must not hold the key either (settings live in the ConfigMap, which only setting managers read).
     const plugin = await halo.api('GET', '/apis/plugin.halo.run/v1alpha1/plugins/momobird-ai');
     must(leaks(plugin.text).length === 0, 'the Plugin object holds a key');
-    return 'scanned ' + all.length + ' responses (' + withContent + ' status bodies, ' + reports + ' sync reports, ' + errors + ' refusals) and the Plugin object: no key, no mbk_';
+    // The settings, as the super administrator reads them, after every key change of the run (X.401 included).
+    const settingsHits = [];
+    for (const [what, p] of keyPlaces.filter(([w]) => !/Secret/.test(w))) {
+      const r = await halo.api('GET', p);
+      if (keyLeaks(r.text).length > 0) settingsHits.push(what + ' (' + r.status + ')');
+    }
+    must(settingsHits.length === 0, 'the settings hold a key: ' + settingsHits.join(', '));
+    return 'scanned ' + all.length + ' responses (' + withContent + ' status bodies, ' + reports + ' sync reports, ' + errors + ' refusals), the Plugin object and the plugin settings as the super administrator reads them (config, json-config, setting, ConfigMaps): no key and nothing shaped like one';
   });
   await step('10.3', 'Halo logs: no key and no mbk_ (after asserting the plugin logged at info, warn and debug level)', async () => {
     const console_ = halo.logs();
@@ -825,7 +877,8 @@ async function noExternalUrl(mock) {
   await halo.createPost({ name: pub, title: '没有外部地址时的公开文章', html: '<p>没有外部地址 芒果</p>' });
   await halo.createPost({ name: priv, title: '没有外部地址时的私有文章', visible: 'PRIVATE', html: '<p>私有</p>' });
   await halo.installPlugin(JAR);
-  await halo.writeSettings({ connection: { baseUrl: mock.baseForHalo, key: KEY }, widget: { enabled: true, position: 'right' }, podcast: { player: true, transcript: false } });
+  await halo.putSecret(SECRET, KEY);
+  await halo.writeSettings({ connection: { baseUrl: mock.baseForHalo, keySecret: SECRET }, widget: { enabled: true, position: 'right' }, podcast: { player: true, transcript: false } });
   await halo.setPlugin(true);
   const noExt = await momoCall(halo, ADMIN, 'GET', '/status?check=false');
 

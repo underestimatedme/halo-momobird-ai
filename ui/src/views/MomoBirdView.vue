@@ -287,7 +287,7 @@ function failureText(f: { kind: string; code: string | null; message: string | n
         title="还没有配置好"
         :description="
           status.problems.join('；') +
-          '。请到「插件 → MomoBird AI → 设置」里填写连接，保存后回到这里点「测试连接」。'
+          '。设置在「插件 → MomoBird AI → 设置 → 连接」，改好后回到这里点「测试连接」。'
         "
         :closable="false"
       />
