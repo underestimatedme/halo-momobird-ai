@@ -5,6 +5,14 @@
 # resource of the same name. Nothing else is granted: anonymous visitors get 401, signed-in users
 # without this permission get 403, and the super administrator (rules "*") always passes.
 #
+# Two separate things decide what a user gets, and they read different roles:
+#   - the API (RBAC) reads every role template granted, hidden ones and aggregated ones included;
+#   - the console's menu and route guard read the "ui-permissions" annotations of VISIBLE roles
+#     only (DefaultRoleService.listPermissions drops halo.run/hidden roles, in 2.17 and later).
+# So the hidden aggregate below gives plugin managers the API, and the page reaches them because the
+# route also accepts the built-in permission system:plugins:manage (any one of a route's
+# permissions is enough, see ui/src/index.ts).
+#
 # 1. A permission an administrator can hand out in 用户 → 角色.
 apiVersion: v1alpha1
 kind: Role
@@ -25,8 +33,9 @@ rules:
     resources: ["test", "sync", "retry"]
     verbs: ["create"]
 ---
-# 2. Whoever may manage plugins may use the page too (the connection key lives in the plugin
-# settings, which only they can open). Hidden: it only widens the built-in plugin-manage template.
+# 2. Whoever may manage plugins may call the API too (the connection key lives in the plugin
+# settings, which only they can open). Hidden, aggregated into the built-in plugin-manage template.
+# It carries no ui-permissions on purpose: the console would ignore them on a hidden role.
 apiVersion: v1alpha1
 kind: Role
 metadata:
@@ -35,9 +44,6 @@ metadata:
     halo.run/role-template: "true"
     halo.run/hidden: "true"
     rbac.authorization.halo.run/aggregate-to-role-template-manage-plugins: "true"
-  annotations:
-    rbac.authorization.halo.run/ui-permissions: |
-      ["plugin:momobird-ai:manage"]
 rules:
   - apiGroups: ["api.momobird.ai"]
     resources: ["status"]

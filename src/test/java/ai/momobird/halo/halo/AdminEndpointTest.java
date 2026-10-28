@@ -360,6 +360,46 @@ class AdminEndpointTest {
     }
 
     @Test
+    @DisplayName("a second sync or retry while one runs is not queued")
+    void noSecondRunWhileOneRuns() throws Exception {
+        web = bind(Duration.ofMillis(100));
+        posts.addPublished("p1");
+        client.upsertDelayMillis = 600;
+
+        post("/sync", "{}").expectStatus().isAccepted();
+        post("/sync", "{\"confirmRemovals\":true}").expectStatus().isAccepted()
+            .expectBody()
+            .jsonPath("$.accepted").isEqualTo(true)
+            .jsonPath("$.running").isEqualTo(true)
+            .jsonPath("$.message").isEqualTo("已有同步在进行，请等它完成");
+        post("/retry", null).expectStatus().isAccepted()
+            .expectBody().jsonPath("$.message").isEqualTo("已有同步在进行，请等它完成");
+
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline
+            && new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(body(web.get().uri("/status?check=false").exchange()))
+                .path("sync").path("running").asBoolean()) {
+            Thread.sleep(50);
+        }
+        assertThat(client.statusCalls.get()).as("only the first sync ran").isEqualTo(1);
+        assertThat(client.upserts).hasSize(1);
+        // once it is done, the next one starts again
+        client.upsertDelayMillis = 0;
+        web = bind(Duration.ofSeconds(10));
+        post("/sync", "{}").expectStatus().isOk();
+        assertThat(client.statusCalls.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("a key pasted into the address field never shows in status")
+    void baseUrlIsCleaned() {
+        settings.set(Settings.of("https://api.example.com/" + KEY, KEY, false, null, null, null));
+        String text = body(web.get().uri("/status?check=false").exchange());
+        assertThat(text).doesNotContain(KEY).doesNotContain("mbk_HALO");
+    }
+
+    @Test
     @DisplayName("a stopped plugin answers 503, not a hang")
     void stoppedService() {
         service.stop();

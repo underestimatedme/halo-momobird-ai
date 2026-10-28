@@ -28,13 +28,24 @@ import {
 type Action = 'test' | 'sync' | 'confirm' | 'retry'
 
 const POLL_MS = 3000
+/** Give up on a run's progress after this many /status failures in a row. */
+const MAX_FAILED_POLLS = 5
 
 const status = ref<Status>()
 const loadError = ref<string>()
 const busy = ref<Action>()
 /** The answer to the last button press, shown under the buttons. */
-const outcome = ref<{ title: string; report?: Report; error?: string; waiting?: boolean }>()
+const outcome = ref<{
+  title: string
+  report?: Report
+  error?: string
+  waiting?: boolean
+  message?: string
+}>()
 let poller: ReturnType<typeof setInterval> | undefined
+let pollInFlight = false
+let failedPolls = 0
+let waitingTitle = '同步'
 
 const connection = computed<Connection | undefined>(() => status.value?.connection)
 const running = computed(() => status.value?.sync.running === true)
@@ -52,7 +63,8 @@ const originProblem = computed(() => {
 
 // ------------------------------------------------------------------ loading
 
-async function load(check: boolean) {
+/** Reads the status. Returns false when it could not (the error is shown). */
+async function load(check: boolean): Promise<boolean> {
   try {
     const next = await getStatus(check)
     if (!check && status.value) {
@@ -61,19 +73,55 @@ async function load(check: boolean) {
     }
     status.value = next
     loadError.value = undefined
+    return true
   } catch (error) {
     loadError.value = describeError(error)
+    return false
   }
 }
 
-function startPolling() {
+/** What the page shows once a sync it was waiting for has finished. */
+function showFinished(title: string) {
+  const report = status.value?.sync.last
+  if (!report) {
+    outcome.value = undefined
+    return
+  }
+  outcome.value = {
+    title,
+    report,
+    error: report.ok ? undefined : (report.error ?? '没有成功'),
+  }
+}
+
+function startPolling(title: string) {
   if (poller !== undefined) return
+  waitingTitle = title
+  failedPolls = 0
   poller = setInterval(async () => {
-    await load(false)
-    if (!running.value) {
-      stopPolling()
-      outcome.value = outcome.value?.waiting ? undefined : outcome.value
-      await load(true)
+    // a slow answer must not be overtaken by the next tick
+    if (pollInFlight) return
+    pollInFlight = true
+    try {
+      if (!(await load(false))) {
+        failedPolls += 1
+        if (failedPolls >= MAX_FAILED_POLLS) {
+          stopPolling()
+          outcome.value = {
+            title: waitingTitle,
+            error: '读不到同步进度（连续失败），同步可能仍在进行。请稍后刷新页面查看结果。',
+          }
+        }
+        return
+      }
+      failedPolls = 0
+      if (!running.value) {
+        stopPolling()
+        showFinished(waitingTitle)
+        await load(true)
+      }
+    } finally {
+      pollInFlight = false
     }
   }, POLL_MS)
 }
@@ -87,7 +135,7 @@ function stopPolling() {
 
 onMounted(async () => {
   await load(true)
-  if (running.value) startPolling()
+  if (running.value) startPolling('同步')
 })
 
 onBeforeUnmount(stopPolling)
@@ -123,9 +171,9 @@ async function run(action: Action, title: string, call: () => Promise<RunResult>
   try {
     const result = await call()
     if (result.accepted) {
-      outcome.value = { title, waiting: true }
+      outcome.value = { title, waiting: true, message: result.message ?? undefined }
       if (status.value) status.value.sync.running = true
-      startPolling()
+      startPolling(title)
       return
     }
     outcome.value = {
@@ -411,7 +459,10 @@ function failureText(f: { kind: string; code: string | null; message: string | n
             v-if="outcome.waiting"
             type="info"
             :title="outcome.title + '仍在进行'"
-            description="文章比较多，需要一些时间。你可以离开这个页面，同步不会中断。"
+            :description="
+              (outcome.message ? outcome.message + '。' : '') +
+              '文章比较多，需要一些时间。你可以离开这个页面，同步不会中断。'
+            "
             :closable="false"
           />
           <VAlert

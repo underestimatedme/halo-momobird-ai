@@ -56,6 +56,10 @@ import run.halo.app.extension.GroupVersion;
  * {@code GET /status?check=false} until {@code sync.running} is false and then reads
  * {@code sync.last}.
  *
+ * <p>Only one sync at a time: while a manual run (or the scheduled full sync) is queued or running, a
+ * new {@code /sync} or {@code /retry} is not queued behind it; it answers {@code 202} with
+ * {@link #BUSY} and the page keeps polling the run already going.
+ *
  * <p>Nothing in a response holds the connection key: every text goes through {@link Redactor}
  * (with the real key and by its {@code mbk_} shape), and the key is never put in a field.
  */
@@ -66,6 +70,8 @@ public class AdminEndpoint implements CustomEndpoint {
     public static final Duration WAIT_LIMIT = Duration.ofSeconds(25);
     /** One quick look at MomoBird: the page asks again when the owner clicks. */
     static final Duration CHECK_TIMEOUT = Duration.ofSeconds(10);
+
+    static final String BUSY = "已有同步在进行，请等它完成";
 
     private static final Pattern DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}");
 
@@ -172,7 +178,7 @@ public class AdminEndpoint implements CustomEndpoint {
         return settings.get().flatMap(s -> {
             List<String> problems = s.validate();
             Mono<Connection> connection = check && problems.isEmpty() ? connection(s) : Mono.just(unchecked());
-            return connection.map(c -> new Status(problems.isEmpty(), problems(problems, s), s.baseUrl(),
+            return connection.map(c -> new Status(problems.isEmpty(), problems(problems, s), clean(s.baseUrl(), s),
                 clean(externalUrl.get(), s), s.widgetEnabled(), s.podcastEnabled(), c, syncView(s), failures(s)));
         }).flatMap(body -> json(HttpStatus.OK, body));
     }
@@ -206,7 +212,10 @@ public class AdminEndpoint implements CustomEndpoint {
      * request: it goes on if the wait ends or the caller goes away, and its report is kept.
      */
     private Mono<ServerResponse> run(Supplier<Mono<SyncReport>> start) {
-        manualRuns.incrementAndGet();
+        // One sync at a time: a second click, or a click during the scheduled run, is not queued.
+        if (sync.state().running() || !manualRuns.compareAndSet(0, 1)) {
+            return json(HttpStatus.ACCEPTED, new RunResult(true, true, true, BUSY, null));
+        }
         Mono<SyncReport> job;
         try {
             job = start.get()

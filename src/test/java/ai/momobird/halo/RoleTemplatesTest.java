@@ -74,7 +74,33 @@ class RoleTemplatesTest {
     }
 
     @Test
-    @DisplayName("plugin managers get the page; the permission is also its own template")
+    @DisplayName("the page's route accepts the plugin-manage permission, which the console really computes")
+    @SuppressWarnings("unchecked")
+    void routeReachesPluginManagers() throws Exception {
+        String index = java.nio.file.Files.readString(java.nio.file.Path.of("ui/src/index.ts"));
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("permissions:\\s*\\[([^\\]]*)\\]").matcher(index);
+        assertThat(m.find()).isTrue();
+        // the console lets a user in when ANY one of these is among their ui-permissions
+        assertThat(m.group(1)).contains("'plugin:momobird-ai:manage'").contains("'system:plugins:manage'");
+
+        // the console only counts ui-permissions of visible roles, so the hidden aggregate must not
+        // be what the route relies on; its annotations are not read
+        Map<String, Object> aggregate = roles().get(1);
+        Map<String, Object> meta = (Map<String, Object>) aggregate.get("metadata");
+        assertThat((Map<String, Object>) meta.get("labels")).containsEntry("halo.run/hidden", "true");
+        Object annotations = meta.get("annotations");
+        assertThat(annotations == null || !((Map<String, Object>) annotations).containsKey(
+            "rbac.authorization.halo.run/ui-permissions")).isTrue();
+
+        // and the visible template is what grants plugin:momobird-ai:manage to custom roles
+        Map<String, Object> ownMeta = (Map<String, Object>) roles().get(0).get("metadata");
+        assertThat(((Map<String, Object>) ownMeta.get("annotations")).get("rbac.authorization.halo.run/ui-permissions"))
+            .asString().contains("plugin:momobird-ai:manage");
+        assertThat((Map<String, Object>) ownMeta.get("labels")).doesNotContainKey("halo.run/hidden");
+    }
+
+    @Test
+    @DisplayName("plugin managers get the API; the permission is also its own template")
     @SuppressWarnings("unchecked")
     void pluginManagersAndOwnTemplate() throws Exception {
         List<Map<String, Object>> roles = roles();
