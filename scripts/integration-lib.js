@@ -415,7 +415,8 @@ class Mock {
   }
 
   async control(change) {
-    const r = await request(this.base, 'POST', '/__control', { json: change });
+    // One retry: the mock is a plain local server, a dropped connection is not a finding.
+    const r = await request(this.base, 'POST', '/__control', { json: change }).catch(() => request(this.base, 'POST', '/__control', { json: change }));
     if (r.status !== 200) throw new Error('mock control answered ' + r.status);
   }
 

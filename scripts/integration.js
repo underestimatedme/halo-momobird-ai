@@ -51,6 +51,12 @@ function check(id, title, ok, evidence) {
   console.log((ok ? 'PASS' : 'FAIL') + ' [' + V + '] ' + id + '  ' + title + '\n       ' + String(evidence).replace(/\n/g, '\n       '));
 }
 
+// A check that was not run on purpose; it is listed in the summary, not counted as passed or failed.
+function skip(id, title, reason) {
+  results.push({ id, title, ok: true, skipped: true, evidence: reason });
+  console.log('SKIPPED [' + V + '] ' + id + '  ' + title + '\n       ' + reason);
+}
+
 // Runs fn; what it returns is the evidence of a PASS, what it throws the evidence of a FAIL.
 async function step(id, title, fn) {
   try {
@@ -111,40 +117,29 @@ async function startMock(name) {
 
 // ----- the browser ----------------------------------------------------------------------------------
 
+// Playwright comes from PLAYWRIGHT_DIR (a node_modules/playwright directory) or the usual Node resolution
+// (this repository, ui/, the current directory). The browser is Playwright's own unless PLAYWRIGHT_CHROMIUM names an executable.
 function loadPlaywright() {
-  const candidates = [process.env.PLAYWRIGHT_DIR, path.join(__dirname, '..', 'ui', 'node_modules', 'playwright'),
-    path.join(__dirname, '..', '..', '..', 'github', 'MomoBird_fe', 'node_modules', 'playwright'),
-    '/opt/coding/planb/github/MomoBird_fe/node_modules/playwright', 'playwright'].filter(Boolean);
-  for (const candidate of candidates) {
+  const attempts = [];
+  const tries = process.env.PLAYWRIGHT_DIR ? [process.env.PLAYWRIGHT_DIR] : [];
+  tries.push('playwright');
+  for (const target of tries) {
     try {
-      return require(candidate);
+      return require(require.resolve(target, { paths: [process.cwd(), __dirname, path.join(__dirname, '..', 'ui')] }));
     } catch (err) {
-      // try the next one
+      attempts.push(target + ': ' + err.message.split('\n')[0]);
     }
   }
-  return null;
+  fail('Playwright was not found (' + attempts.join('; ') + '). Set PLAYWRIGHT_DIR to a node_modules/playwright directory, or SKIP_BROWSER=1 to skip the console checks');
 }
 
 async function launchBrowser() {
   const playwright = loadPlaywright();
-  if (!playwright) fail('Playwright is not installed (set PLAYWRIGHT_DIR to a node_modules/playwright directory, or SKIP_BROWSER=1)');
+  const executablePath = process.env.PLAYWRIGHT_CHROMIUM || undefined;
   try {
-    return await playwright.chromium.launch();
+    return await playwright.chromium.launch(executablePath ? { executablePath } : {});
   } catch (err) {
-    // The installed browser may be an older build than this Playwright wants: use any headless shell found.
-    const cache = path.join(os.homedir(), 'Library', 'Caches', 'ms-playwright');
-    const cache2 = path.join(os.homedir(), '.cache', 'ms-playwright');
-    for (const root of [process.env.PLAYWRIGHT_BROWSERS_PATH, cache, cache2].filter(Boolean)) {
-      if (!fs.existsSync(root)) continue;
-      const shells = fs.readdirSync(root).filter((d) => d.indexOf('chromium_headless_shell') === 0).sort().reverse();
-      for (const dir of shells) {
-        for (const sub of fs.readdirSync(path.join(root, dir))) {
-          const exe = path.join(root, dir, sub, 'chrome-headless-shell');
-          if (fs.existsSync(exe)) return playwright.chromium.launch({ executablePath: exe });
-        }
-      }
-    }
-    throw err;
+    fail('no usable browser (' + err.message.split('\n')[0] + '). Run "npx playwright install chromium", or set PLAYWRIGHT_CHROMIUM to a Chromium / chrome-headless-shell executable, or SKIP_BROWSER=1');
   }
 }
 
@@ -528,15 +523,28 @@ async function main() {
       .catch(async () => fail('take-down did not happen: ' + (await mock.summary(before)).join('; ')));
     const st = await admin(halo, 'GET', '/status');
     must(st.json.sync.planRequired === true && st.json.connection.plan.active === false, 'status does not show the expired plan: ' + textOf(st.json.sync) + ' ' + textOf(st.json.connection.plan));
+    // A post refused for the plan is not a failure and not on the retry list: while the plan is expired the
+    // status lists none of them and /retry pushes nothing; the next full sync after renewing catches them up.
+    const late = '套餐到期后的文章';
+    must(!st.json.failures.some((f) => f.title === late || f.name === NEW.late), 'the 402 post is on the failures list: ' + textOf(st.json.failures));
+    const beforeRetry = await mock.count();
+    const retried = await admin(halo, 'POST', '/retry');
+    const afterRetry = await mock.summary(beforeRetry);
+    must(retried.status === 200 || retried.status === 202 || retried.status === 503, '/retry answered ' + retried.status + ' ' + retried.text.slice(0, 200));
+    must(!afterRetry.some((s) => /^PUT .*-> 200/.test(s)) && (await idsNow()).indexOf(postId(NEW.late)) === -1,
+      '/retry pushed the 402 post: ' + afterRetry.join('; '));
     await mock.control({ planExpired: false });
     await halo.patchPost(NEW.a, (p) => { p.spec.visible = 'PUBLIC'; });
-    // A post refused for the plan is not on the retry list: the next sync catches it up.
+    const afterRenewal = await admin(halo, 'POST', '/retry');
+    await sleep(3000);
+    must((await idsNow()).indexOf(postId(NEW.late)) === -1, 'after renewing /retry pushed the 402 post, so it is on the retry list: ' + textOf(afterRenewal.json));
     const retry = await admin(halo, 'POST', '/sync', { json: {} });
+    must(retry.json.report && retry.json.report.pushed >= 1, 'the full sync after renewing pushed nothing: ' + retry.text.slice(0, 300));
     await expect('the post refused under 402 to be pushed by the next full sync', [NEW.late], [], 30000);
     ids = await idsNow();
     const st2 = await admin(halo, 'GET', '/status?check=false');
     must(st2.json.failures.length === 0, 'failures remain: ' + textOf(st2.json.failures));
-    return 'full sync under 402: pushed ' + rep.pushed + ', planRequired ' + rep.planRequired + ', error "' + rep.error + '"; take-down during 402 worked; status planRequired=true, plan '
+    return 'full sync under 402: pushed ' + rep.pushed + ', planRequired ' + rep.planRequired + ', error "' + rep.error + '"; take-down during 402 worked; failures list without the 402 post; /retry while expired sent: ' + (afterRetry.join('; ') || 'nothing') + '; /retry after renewing pushed nothing either; status planRequired=true, plan '
       + st.json.connection.plan.status + '; after renewing the next full sync (' + retry.status + ', pushed ' + (retry.json.report ? retry.json.report.pushed : '?') + ') pushed the post; mock holds ' + ids.length + ' posts';
   });
 
@@ -631,7 +639,10 @@ async function main() {
       return null;
     });
   } else {
-    console.log('SKIP_BROWSER=1: no console checks');
+    for (const [id, title] of [['8.3', 'console: the 工具 → MomoBird menu entry shows for managers only, the page opens for them, others are refused'],
+      ['2', 'the admin UI loads in this console: route registered, bundle fetched, no console or page errors']]) {
+      skip(id, title, 'SKIP_BROWSER=1');
+    }
   }
   if (browser) {
     cleanups.push(() => browser.close());
@@ -698,14 +709,15 @@ async function main() {
     const titleSeen = await titleOf(Q.pub);
     must(phase !== 'STARTED', 'plugin phase ' + phase);
     must(later === after, 'the mock saw ' + (later - after) + ' requests after the plugin was disabled: ' + (await mock.summary(after)).join('; '));
-    must(threadsOn === 0 || Number.isNaN(threadsOn) || threadsOff === 0, 'plugin threads still alive after disabling: ' + threadsOff + ' (before: ' + threadsOn + ')');
+    must(threadsOn > 0, 'precondition: no momobird thread was visible while the plugin ran (' + threadsOn + '), so "none after disabling" would prove nothing');
+    must(threadsOff === 0, 'plugin threads still alive after disabling: ' + threadsOff + ' (before: ' + threadsOn + ')');
     must(titleSeen !== '停用后改的标题', 'a change made while disabled was pushed');
     await halo.setPlugin(true);
     await waitFor('the second start line', async () => logCount(halo, '\\[MomoBird\\] 同步服务已启动') === startLines + 1, { timeout: 20000 });
     await halo.patchPost(Q.pub, (p) => { p.spec.title = '重新启用后改的标题'; });
     await waitFor('a push after enabling again', async () => (await titleOf(Q.pub)) === '重新启用后改的标题', { timeout: 30000 })
       .catch(async () => fail('no push after enabling again; title ' + (await titleOf(Q.pub))));
-    return 'momobird threads: ' + (Number.isNaN(threadsOn) ? 'n/a' : threadsOn) + ' running, ' + (Number.isNaN(threadsOff) ? 'n/a' : threadsOff) + ' after disabling; requests after disabling: 0 (' + after + ' -> ' + later
+    return 'momobird threads: ' + threadsOn + ' running, ' + threadsOff + ' after disabling; requests after disabling: 0 (' + after + ' -> ' + later
       + ' over 9 s, with two title changes); phase ' + phase + '; enabling again logged the start line a second time and the next change was pushed';
   });
 
@@ -782,7 +794,6 @@ async function main() {
 
   // ------------------------------------------------------------------ 9: no external address
   await noExternalUrl(mock);
-  await mock.control({});
 }
 
 // A second Halo that does not know its external address: nothing is pushed or taken down for public posts.
@@ -863,7 +874,8 @@ async function noExternalUrl(mock) {
   }
   cleanup();
   const failed = results.filter((r) => !r.ok).length;
-  fs.writeFileSync(path.join(WORK, 'results-' + V + '.tsv'), results.map((r) => [V, r.id, r.ok ? 'PASS' : 'FAIL', r.title, r.evidence.replace(/\s+/g, ' ')].join('\t')).join('\n') + '\n');
-  console.log('RESULT [' + V + '] ' + (results.length - failed) + ' passed, ' + failed + ' failed' + (crashed ? ' (the run crashed)' : ''));
+  const skipped = results.filter((r) => r.skipped).length;
+  fs.writeFileSync(path.join(WORK, 'results-' + V + '.tsv'), results.map((r) => [V, r.id, r.skipped ? 'SKIP' : r.ok ? 'PASS' : 'FAIL', r.title, r.evidence.replace(/\s+/g, ' ')].join('\t')).join('\n') + '\n');
+  console.log('RESULT [' + V + '] ' + (results.length - failed - skipped) + ' passed, ' + failed + ' failed, ' + skipped + ' skipped' + (crashed ? ' (the run crashed)' : ''));
   process.exit(failed === 0 ? 0 : 1);
 })();

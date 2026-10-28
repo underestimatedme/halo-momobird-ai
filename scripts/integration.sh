@@ -128,7 +128,9 @@ echo "=== summary ==="
 grep -h '^RESULT' "$WORK"/out-*.log || true
 TOTAL_PASS="$(cat "$WORK"/out-*.log | grep -c '^PASS' || true)"
 TOTAL_FAIL="$(cat "$WORK"/out-*.log | grep -c '^FAIL' || true)"
-echo "total: $TOTAL_PASS passed, $TOTAL_FAIL failed"
+TOTAL_SKIP="$(cat "$WORK"/out-*.log | grep -c '^SKIPPED' || true)"
+grep -h '^SKIPPED' "$WORK"/out-*.log || true
+echo "total: $TOTAL_PASS passed, $TOTAL_FAIL failed, $TOTAL_SKIP skipped"
 if [ "$TOTAL_FAIL" -ne 0 ] || [ "$TOTAL_PASS" -eq 0 ]; then
   STATUS=1
 fi
