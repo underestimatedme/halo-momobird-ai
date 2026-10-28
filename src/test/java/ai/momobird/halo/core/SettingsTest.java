@@ -104,4 +104,28 @@ class SettingsTest {
     void toStringNeverContainsTheKey() {
         assertThat(withUrl("https://api.example.com").toString()).doesNotContain(KEY).doesNotContain("mbk_");
     }
+
+    @Test
+    void aKeyWithCharactersThatCannotBeSentInAHeaderIsRejectedWithoutEchoingIt() {
+        for (String bad : List.of("mbk_abc\ndef", "mbk_abc\r\ndef", "mbk_中文", "mbk_abc def", "mbk_abc\tdef",
+            "mbk_abc\u00e9", "mbk_", "mbk_abc;x")) {
+            List<String> problems = Settings.of(null, bad, null, null, null, null).validate();
+            assertThat(problems).as(bad).hasSize(1);
+            assertThat(problems.get(0)).contains("连接密钥").doesNotContain("abc").doesNotContain("中文");
+        }
+    }
+
+    @Test
+    void whitespaceAroundThePastedKeyIsStrippedAndTheKeyIsValid() {
+        for (String pasted : List.of(KEY + " ", " " + KEY, KEY + "\n", "\t" + KEY + "\r\n")) {
+            Settings s = Settings.of(null, pasted, null, null, null, null);
+            assertThat(s.key()).isEqualTo(KEY);
+            assertThat(s.validate()).isEmpty();
+        }
+    }
+
+    @Test
+    void realKeyAlphabetIsAccepted() {
+        assertThat(Settings.of(null, "mbk_Abc-123_xyz", null, null, null, null).validate()).isEmpty();
+    }
 }

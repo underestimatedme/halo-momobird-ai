@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * The plugin settings as one immutable value. It is built from what Halo's setting form stores
@@ -24,6 +25,9 @@ public record Settings(
     public static final String DEFAULT_BASE_URL = "https://api.valley.atlaspaces.com";
     public static final String RIGHT = "right";
     public static final String LEFT = "left";
+
+    /** What a real key looks like: the prefix, then URL-safe characters only. */
+    private static final Pattern KEY_SHAPE = Pattern.compile("mbk_[A-Za-z0-9_-]+");
 
     /** Hosts that may be reached over plain http: local runs and the Docker integration test. */
     private static final Set<String> PLAIN_HTTP_HOSTS =
@@ -66,8 +70,10 @@ public record Settings(
         }
         if (key.isEmpty()) {
             problems.add("还没有填写连接密钥，请在 MomoBird 控制台的知识源页面生成后填入");
-        } else if (!key.startsWith("mbk_")) {
-            problems.add("连接密钥应以 mbk_ 开头，请检查是否复制完整");
+        } else if (!KEY_SHAPE.matcher(key).matches()) {
+            // Also keeps anything that is not header-safe (newline, space, non-ASCII) out of the
+            // Authorization header. The message never repeats the key.
+            problems.add("连接密钥格式不对：应以 mbk_ 开头，只含字母、数字、下划线和短横线，请检查是否复制完整");
         }
         return problems;
     }

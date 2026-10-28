@@ -78,7 +78,18 @@ public final class ConnectClient {
     }
 
     public ConnectClient(Settings settings, Duration timeout, List<Duration> retryDelays, Sleeper sleeper) {
-        List<String> problems = settings.validate();
+        this(settings, timeout, retryDelays, sleeper, true);
+    }
+
+    /** For tests of the last line of defence in {@code send}: skips {@link Settings#validate()}. */
+    static ConnectClient withoutValidation(Settings settings, Duration timeout, List<Duration> retryDelays,
+                                           Sleeper sleeper) {
+        return new ConnectClient(settings, timeout, retryDelays, sleeper, false);
+    }
+
+    private ConnectClient(Settings settings, Duration timeout, List<Duration> retryDelays, Sleeper sleeper,
+                          boolean validate) {
+        List<String> problems = validate ? settings.validate() : List.of();
         if (!problems.isEmpty()) {
             // The messages never repeat the address or the key.
             throw new IllegalArgumentException(problems.get(0));
@@ -155,19 +166,26 @@ public final class ConnectClient {
     }
 
     private Answer send(String method, String path, String body) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(base + path))
-            .timeout(timeout)
-            .header("Authorization", "Bearer " + key)
-            .header("Accept", "application/json");
-        if (body == null) {
-            builder.method(method, BodyPublishers.noBody());
-        } else {
-            builder.header("Content-Type", "application/json")
-                .method(method, BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+        HttpRequest request;
+        try {
+            HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(base + path))
+                .timeout(timeout)
+                .header("Authorization", "Bearer " + key)
+                .header("Accept", "application/json");
+            if (body == null) {
+                builder.method(method, BodyPublishers.noBody());
+            } else {
+                builder.header("Content-Type", "application/json")
+                    .method(method, BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+            }
+            request = builder.build();
+        } catch (IllegalArgumentException e) {
+            // The JDK's message quotes the offending header value, which is the key: never use it.
+            throw ConnectError.unsendableKey();
         }
 
         CompletableFuture<HttpResponse<byte[]>> pending =
-            http.sendAsync(builder.build(), info -> new CappedBody(MAX_BODY_BYTES));
+            http.sendAsync(request, info -> new CappedBody(MAX_BODY_BYTES));
         try {
             HttpResponse<byte[]> response = pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             return new Answer(response.statusCode(), response.body());

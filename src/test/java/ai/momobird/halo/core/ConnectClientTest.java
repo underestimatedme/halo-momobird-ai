@@ -639,4 +639,42 @@ class ConnectClientTest {
             assertNoKey(e);
         }
     }
+
+    // ------------------------------------------- header-unsafe keys (fix round 1)
+
+    @Test
+    void theConstructorRefusesAHeaderUnsafeKeyWithoutEchoingIt() {
+        for (String bad : List.of("mbk_abc\ndef", "mbk_中文", "mbk_abc def")) {
+            Settings s = Settings.of("https://api.example.com", bad, null, null, null, null);
+            assertThatThrownBy(() -> new ConnectClient(s))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageNotContaining("abc")
+                .hasMessageNotContaining("中文");
+        }
+    }
+
+    @Test
+    void sendNeverLeaksAKeyThatSlipsPastValidation() throws Exception {
+        AtomicInteger hits = new AtomicInteger();
+        HttpServer server = serve(ex -> {
+            hits.incrementAndGet();
+            reply(ex, 200, ok("{}"));
+        });
+        for (String bad : List.of("mbk_abc\ndef", "mbk_abc\r\nX-Evil: 1", "mbk_中文")) {
+            Settings s = Settings.of(url(server), bad, null, null, null, null);
+            ConnectClient c = ConnectClient.withoutValidation(s, Duration.ofSeconds(5),
+                List.of(Duration.ofSeconds(1), Duration.ofSeconds(3)), ms -> sleeps.add(ms));
+
+            ConnectError e = caught(c::status);
+
+            assertThat(e.getMessage()).isEqualTo("连接密钥包含无法发送的字符");
+            assertThat(e.getMessage()).doesNotContain("abc").doesNotContain("中文");
+            java.io.StringWriter trace = new java.io.StringWriter();
+            e.printStackTrace(new java.io.PrintWriter(trace));
+            assertThat(trace.toString()).doesNotContain("abc").doesNotContain("中文").doesNotContain("Evil");
+            assertThat(e.getCause()).isNull();
+        }
+        assertThat(hits.get()).isZero();
+        assertThat(sleeps).isEmpty(); // not retried
+    }
 }

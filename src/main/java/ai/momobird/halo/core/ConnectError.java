@@ -76,6 +76,11 @@ public final class ConnectError extends RuntimeException {
         return network(text, key);
     }
 
+    /** The key cannot go into an HTTP header. Not retried; the message never repeats the key. */
+    public static ConnectError unsendableKey() {
+        return new ConnectError(Kind.UNAUTHORIZED, null, null, "连接密钥包含无法发送的字符");
+    }
+
     /** An error answer from the server. {@code code} must already be known to be code-shaped and free of the key. */
     public static ConnectError http(int status, String code) {
         Kind kind;
