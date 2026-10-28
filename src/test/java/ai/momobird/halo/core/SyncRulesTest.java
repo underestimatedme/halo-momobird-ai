@@ -186,7 +186,7 @@ class SyncRulesTest {
             assertThat(check.ok()).isFalse();
             assertThat(check.siteOrigin()).isNull();
             assertThat(check.sourceOrigin()).isEqualTo("https://blog.example.com");
-            assertThat(check.reason()).contains("外部访问地址").contains("基本设置");
+            assertThat(check.reason()).contains("系统设置 → 基本设置 → 外部访问地址").contains("halo.external-url");
         }
         // two unset addresses are not "the same"
         assertThat(SyncRules.origin(null, null).ok()).isFalse();

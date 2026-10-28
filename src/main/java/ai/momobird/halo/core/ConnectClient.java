@@ -43,7 +43,7 @@ import java.util.regex.Pattern;
  *
  * <p>Results are the {@code data} member of MomoBird's {@code {code, data, message}} envelope.
  */
-public final class ConnectClient {
+public final class ConnectClient implements ConnectApi {
 
     public static final String API_PREFIX = "/momobird/api/public/connect/v1";
     public static final int PAGE_SIZE = 500;
@@ -106,11 +106,13 @@ public final class ConnectClient {
             .build();
     }
 
+    @Override
     public JsonNode status() {
         return perform("GET", "/status", null);
     }
 
     /** One page of what MomoBird holds; pass the previous page's {@code next_cursor}, or null for the first. */
+    @Override
     public JsonNode listPosts(String cursor) {
         String path = "/posts?limit=" + PAGE_SIZE;
         if (cursor != null && !cursor.isEmpty()) {
@@ -120,6 +122,7 @@ public final class ConnectClient {
     }
 
     /** Pushes posts (at most 20 per call). */
+    @Override
     public JsonNode upsert(List<PostPayload> posts) {
         ObjectNode body = JSON.createObjectNode();
         body.set("posts", JSON.valueToTree(posts));
@@ -127,12 +130,14 @@ public final class ConnectClient {
     }
 
     /** Takes posts down by external id (at most 100 per call). */
+    @Override
     public JsonNode delete(List<String> ids) {
         ObjectNode body = JSON.createObjectNode();
         body.set("external_ids", JSON.valueToTree(ids));
         return perform("POST", "/posts/delete", body);
     }
 
+    @Override
     public JsonNode enableWidget() {
         return perform("POST", "/widget/enable", null);
     }

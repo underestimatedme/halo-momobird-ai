@@ -91,8 +91,10 @@ public final class SyncRules {
         String source = originOf(sourceUrl);
         if (site == null) {
             String reason = blank(externalUrl)
-                ? "Halo 的外部访问地址还没有设置，请到「系统设置 → 基本设置」填写网站地址（旧版本在配置里设置 halo.external-url）"
-                : "Halo 的外部访问地址不是有效的网址，请到「系统设置 → 基本设置」检查";
+                ? "Halo 的外部访问地址还没有设置：请在 Halo 后台「系统设置 → 基本设置 → 外部访问地址」填写网站地址"
+                    + "（2.17 等旧版本后台没有这一项，要在 Halo 的启动参数或配置文件里设置 halo.external-url）"
+                : "Halo 的外部访问地址不是有效的网址：请检查 Halo 后台「系统设置 → 基本设置 → 外部访问地址」"
+                    + "（2.17 等旧版本检查启动参数或配置文件里的 halo.external-url）";
             return new OriginCheck(false, null, source, reason);
         }
         if (source == null) {
@@ -103,7 +105,8 @@ public final class SyncRules {
         }
         if (!site.equals(source)) {
             return new OriginCheck(false, site, source,
-                "Halo 的外部访问地址（" + site + "）和 MomoBird 来源的网站地址（" + source + "）不一致");
+                "Halo 的外部访问地址（" + site + "）和 MomoBird 来源的网站地址（" + source + "）不一致，"
+                    + "两边必须同源（协议、域名、端口都一样，注意 www 和 http/https）");
         }
         return new OriginCheck(true, site, source, null);
     }

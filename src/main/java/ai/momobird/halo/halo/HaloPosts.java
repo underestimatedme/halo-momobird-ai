@@ -58,6 +58,23 @@ public class HaloPosts {
             .map(HaloPosts::view);
     }
 
+    /** One page of {@link #listAll()}: the posts and whether another page follows. */
+    public record Page(List<PostView> items, boolean hasNext) {
+        public Page {
+            items = items == null ? List.of() : List.copyOf(items);
+        }
+    }
+
+    /**
+     * Page {@code number} (1-based) of the same listing as {@link #listAll()}. For a caller that
+     * blocks page by page with a timeout on each read.
+     */
+    public Mono<Page> listPage(int number) {
+        return page(Post.class, number).map(result -> new Page(
+            result.getItems().stream().map(HaloPosts::view).toList(),
+            result.hasNext() && !result.getItems().isEmpty()));
+    }
+
     /** One post, or empty when it no longer exists (a permanently deleted post). */
     public Mono<PostView> get(String name) {
         return client.fetch(Post.class, name).map(HaloPosts::view);
