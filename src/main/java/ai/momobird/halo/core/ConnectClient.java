@@ -119,8 +119,8 @@ public final class ConnectClient {
         return perform("GET", path, null);
     }
 
-    /** Pushes posts (any Jackson-serializable objects in connect's shape; at most 20 per call). */
-    public JsonNode upsert(List<?> posts) {
+    /** Pushes posts (at most 20 per call). */
+    public JsonNode upsert(List<PostPayload> posts) {
         ObjectNode body = JSON.createObjectNode();
         body.set("posts", JSON.valueToTree(posts));
         return perform("PUT", "/posts", body);

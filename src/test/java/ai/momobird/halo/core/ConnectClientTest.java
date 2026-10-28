@@ -176,8 +176,8 @@ class ConnectClientTest {
             seen.add(see(ex));
             reply(ex, 200, ok("{\"results\":[{\"external_id\":\"1\",\"status\":\"created\"}]}"));
         });
-        List<java.util.Map<String, Object>> posts = List.of(
-            java.util.Map.of("external_id", "1", "title", "你好", "content", "正文", "url", "https://x.test/a/"));
+        List<PostPayload> posts = List.of(
+            new PostPayload("1", "你好", "正文", "https://x.test/a/", "技术", "2026-10-02T00:00:00.000Z"));
 
         JsonNode data = client(url(server)).upsert(posts);
 
@@ -189,6 +189,9 @@ class ConnectClientTest {
         assertThat(s.authorization()).isEqualTo("Bearer " + KEY);
         JsonNode body = JSON.readTree(s.body());
         assertThat(body.get("posts").get(0).get("title").asText()).isEqualTo("你好");
+        assertThat(body.get("posts").get(0).get("external_id").asText()).isEqualTo("1");
+        assertThat(body.get("posts").get(0).get("category").asText()).isEqualTo("技术");
+        assertThat(body.get("posts").get(0).get("modified_at").asText()).isEqualTo("2026-10-02T00:00:00.000Z");
         assertThat(body.get("posts")).hasSize(1);
     }
 
