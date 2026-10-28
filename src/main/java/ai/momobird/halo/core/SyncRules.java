@@ -95,6 +95,9 @@ public final class SyncRules {
                     + "（2.17 等旧版本后台没有这一项，要在 Halo 的启动参数或配置文件里设置 halo.external-url）"
                 : "Halo 的外部访问地址不是有效的网址：请检查 Halo 后台「系统设置 → 基本设置 → 外部访问地址」"
                     + "（2.17 等旧版本检查启动参数或配置文件里的 halo.external-url）";
+            if (source != null) {
+                reason += "，请设成 " + source + "（MomoBird 来源的站点地址）";
+            }
             return new OriginCheck(false, null, source, reason);
         }
         if (source == null) {

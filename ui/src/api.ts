@@ -76,7 +76,10 @@ export interface Status {
     planRequired: boolean
     local: number | null
     remote: number | null
+    /** The latest run of any kind. */
     last: Report | null
+    /** The last full sync: the clean-up guard's counts and notes belong to it. */
+    lastFull: Report | null
   }
   failures: Failure[]
 }

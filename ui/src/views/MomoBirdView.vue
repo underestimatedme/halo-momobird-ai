@@ -24,6 +24,7 @@ import {
   type RunResult,
   type Status,
 } from '../api'
+import { externalUrlText, guardCount, guardNotes } from '../text'
 
 type Action = 'test' | 'sync' | 'confirm' | 'retry'
 
@@ -54,6 +55,8 @@ const locked = computed(() => busy.value !== undefined || running.value)
 const configured = computed(() => status.value?.configured === true)
 const guardPending = computed(() => status.value?.sync.guardPending === true)
 const last = computed(() => status.value?.sync.last ?? null)
+/** The clean-up guard belongs to the last full sync, whatever ran after it. */
+const lastFull = computed(() => status.value?.sync.lastFull ?? null)
 const retryCount = computed(() => status.value?.failures.length ?? 0)
 
 const originProblem = computed(() => {
@@ -193,7 +196,7 @@ const startFullSync = () => run('sync', '全量同步', () => fullSync(false))
 const startRetry = () => run('retry', '重试失败项', () => retryFailures())
 
 function confirmRemovals() {
-  const count = last.value?.wouldRemove || last.value?.heldRemovals || 0
+  const count = guardCount(lastFull.value)
   Dialog.warning({
     title: '确认撤下这些文章？',
     description:
@@ -374,7 +377,7 @@ function failureText(f: { kind: string; code: string | null; message: string | n
               </template>
               <template v-else>—</template>
               <div class="mb-muted">
-                Halo 外部访问地址：{{ status.externalUrl || '还没有设置' }}
+                Halo 外部访问地址：{{ externalUrlText(status.externalUrl, connection?.origin) }}
               </div>
             </dd>
           </div>
@@ -431,11 +434,11 @@ function failureText(f: { kind: string; code: string | null; message: string | n
           <template #description>
             <p>
               MomoBird 上有
-              {{ last?.wouldRemove || last?.heldRemovals || '一些' }}
+              {{ guardCount(lastFull) || '一些' }}
               篇文章在 Halo 里已经没有了，但数量很多（或 Halo 里一篇都没有、或知识源类型不是
               halo）， 为防止误删，本次没有撤下。
             </p>
-            <p v-for="note in last?.notes ?? []" :key="note" class="mb-muted">{{ note }}</p>
+            <p v-for="note in guardNotes(lastFull)" :key="note" class="mb-muted">{{ note }}</p>
             <p>
               如果确实要撤下它们，点下面的按钮；如果不是，请先检查 Halo
               里的文章有没有被删或改成私有。

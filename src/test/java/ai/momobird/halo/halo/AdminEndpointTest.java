@@ -322,6 +322,29 @@ class AdminEndpointTest {
     }
 
     @Test
+    @DisplayName("the guard's counts come from the last full sync, even after a later run of another kind")
+    void lastFullOutlivesALaterRun() {
+        posts.addPublished("p1");
+        String[] strangers = new String[12];
+        for (int i = 0; i < strangers.length; i++) {
+            strangers[i] = "9000000000" + i;
+        }
+        client.seed(strangers);
+        post("/sync", null).expectStatus().isOk();
+
+        // a later run that is not a full sync (here the retry button): its report becomes sync.last
+        post("/retry", null).expectStatus().isOk();
+
+        web.get().uri("/status?check=false").exchange().expectBody()
+            .jsonPath("$.sync.guardPending").isEqualTo(true)
+            .jsonPath("$.sync.last.mode").isEqualTo("retry")
+            .jsonPath("$.sync.last.wouldRemove").isEqualTo(0)
+            .jsonPath("$.sync.lastFull.mode").isEqualTo("full")
+            .jsonPath("$.sync.lastFull.wouldRemove").isEqualTo(12)
+            .jsonPath("$.sync.lastFull.guardTripped").isEqualTo(true);
+    }
+
+    @Test
     @DisplayName("a body that is not JSON is a 400 with a Chinese message")
     void badBody() {
         post("/sync", "{not json").expectStatus().isBadRequest()

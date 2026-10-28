@@ -107,8 +107,12 @@ public class AdminEndpoint implements CustomEndpoint {
     record Failure(String name, String title, String kind, String code, String message, String at) {
     }
 
+    /**
+     * {@code last} is the latest run of any kind; {@code lastFull} the last full sync, which the
+     * clean-up guard's counts and notes belong to (a later incremental run or retry must not hide them).
+     */
     record Sync(boolean running, boolean guardPending, boolean planRequired, Integer local, Integer remote,
-                Report last) {
+                Report last, Report lastFull) {
     }
 
     record Status(boolean configured, List<String> problems, String baseUrl, String externalUrl,
@@ -335,7 +339,7 @@ public class AdminEndpoint implements CustomEndpoint {
         boolean counted = full != null && (full.error() == null || full.local() > 0 || full.remote() > 0);
         return new Sync(state.running() || manualRuns.get() > 0, state.guardPending(), state.planRequired(),
             counted ? full.local() : null, counted ? full.remote() : null,
-            last == null ? null : report(last, s));
+            last == null ? null : report(last, s), full == null ? null : report(full, s));
     }
 
     private static SyncReport latest(SyncReport... reports) {
