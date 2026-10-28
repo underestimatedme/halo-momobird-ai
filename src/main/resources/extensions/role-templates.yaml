@@ -1,0 +1,47 @@
+# Who may use the "工具 → MomoBird" page and the endpoints behind it
+# (/apis/api.momobird.ai/v1alpha1/{status,test,sync,retry}, see AdminEndpoint).
+#
+# Halo reads GET /status as verb "list" and POST /test, /sync, /retry as verb "create" on a
+# resource of the same name. Nothing else is granted: anonymous visitors get 401, signed-in users
+# without this permission get 403, and the super administrator (rules "*") always passes.
+#
+# 1. A permission an administrator can hand out in 用户 → 角色.
+apiVersion: v1alpha1
+kind: Role
+metadata:
+  name: role-template-momobird-ai-manage
+  labels:
+    halo.run/role-template: "true"
+  annotations:
+    rbac.authorization.halo.run/module: "MomoBird AI"
+    rbac.authorization.halo.run/display-name: "MomoBird 同步管理"
+    rbac.authorization.halo.run/ui-permissions: |
+      ["plugin:momobird-ai:manage"]
+rules:
+  - apiGroups: ["api.momobird.ai"]
+    resources: ["status"]
+    verbs: ["get", "list"]
+  - apiGroups: ["api.momobird.ai"]
+    resources: ["test", "sync", "retry"]
+    verbs: ["create"]
+---
+# 2. Whoever may manage plugins may use the page too (the connection key lives in the plugin
+# settings, which only they can open). Hidden: it only widens the built-in plugin-manage template.
+apiVersion: v1alpha1
+kind: Role
+metadata:
+  name: role-template-momobird-ai-manage-by-plugin-managers
+  labels:
+    halo.run/role-template: "true"
+    halo.run/hidden: "true"
+    rbac.authorization.halo.run/aggregate-to-role-template-manage-plugins: "true"
+  annotations:
+    rbac.authorization.halo.run/ui-permissions: |
+      ["plugin:momobird-ai:manage"]
+rules:
+  - apiGroups: ["api.momobird.ai"]
+    resources: ["status"]
+    verbs: ["get", "list"]
+  - apiGroups: ["api.momobird.ai"]
+    resources: ["test", "sync", "retry"]
+    verbs: ["create"]
