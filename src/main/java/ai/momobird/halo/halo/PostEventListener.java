@@ -1,5 +1,7 @@
 package ai.momobird.halo.halo;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import run.halo.app.event.post.PostDeletedEvent;
@@ -16,6 +18,8 @@ import run.halo.app.event.post.PostVisibleChangedEvent;
 @Component
 public class PostEventListener {
 
+    private static final Logger log = LoggerFactory.getLogger(PostEventListener.class);
+
     private final SyncService sync;
 
     public PostEventListener(SyncService sync) {
@@ -24,26 +28,32 @@ public class PostEventListener {
 
     @EventListener(PostPublishedEvent.class)
     public void onPublished(PostPublishedEvent event) {
-        sync.enqueue(event.getName());
+        seen("PostPublishedEvent", event.getName());
     }
 
     @EventListener(PostUpdatedEvent.class)
     public void onUpdated(PostUpdatedEvent event) {
-        sync.enqueue(event.getName());
+        seen("PostUpdatedEvent", event.getName());
     }
 
     @EventListener(PostUnpublishedEvent.class)
     public void onUnpublished(PostUnpublishedEvent event) {
-        sync.enqueue(event.getName());
+        seen("PostUnpublishedEvent", event.getName());
     }
 
     @EventListener(PostDeletedEvent.class)
     public void onDeleted(PostDeletedEvent event) {
-        sync.enqueue(event.getName());
+        seen("PostDeletedEvent", event.getName());
     }
 
     @EventListener(PostVisibleChangedEvent.class)
     public void onVisibleChanged(PostVisibleChangedEvent event) {
-        sync.enqueue(event.getName());
+        seen("PostVisibleChangedEvent", event.getName());
+    }
+
+    /** Debug level only (the integration test turns it on): which event reached the plugin. Post names hold no secrets. */
+    private void seen(String event, String postName) {
+        log.debug("[MomoBird] 收到文章事件 {} {}", event, postName);
+        sync.enqueue(postName);
     }
 }
