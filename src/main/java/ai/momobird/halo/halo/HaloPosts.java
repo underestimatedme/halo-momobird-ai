@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Component;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import run.halo.app.content.PostContentService;
 import run.halo.app.core.extension.content.Category;
@@ -46,19 +45,7 @@ public class HaloPosts {
         this.externalUrl = externalUrl;
     }
 
-    /**
-     * Every post Halo holds (drafts, private, trashed too: {@code SyncRules} decides), one page at
-     * a time and without bodies. The next page is only asked for when the consumer wants it.
-     */
-    public Flux<PostView> listAll() {
-        return page(Post.class, 1)
-            .expand(result -> result.hasNext() && !result.getItems().isEmpty()
-                ? page(Post.class, result.getPage() + 1) : Mono.empty())
-            .concatMapIterable(ListResult::getItems)
-            .map(HaloPosts::view);
-    }
-
-    /** One page of {@link #listAll()}: the posts and whether another page follows. */
+    /** One page of the post listing: the posts and whether another page follows. */
     public record Page(List<PostView> items, boolean hasNext) {
         public Page {
             items = items == null ? List.of() : List.copyOf(items);
@@ -66,8 +53,9 @@ public class HaloPosts {
     }
 
     /**
-     * Page {@code number} (1-based) of the same listing as {@link #listAll()}. For a caller that
-     * blocks page by page with a timeout on each read.
+     * Page {@code number} (1-based) of every post Halo holds (drafts, private, trashed too:
+     * {@code SyncRules} decides), without bodies. For a caller that blocks page by page with a
+     * timeout on each read ({@code HaloPostSource}).
      */
     public Mono<Page> listPage(int number) {
         return page(Post.class, number).map(result -> new Page(
@@ -106,17 +94,6 @@ public class HaloPosts {
                 category.getSpec().getChildren()))
             .collectList()
             .map(CategoryTree::of);
-    }
-
-    /**
-     * The top category of one post. This reads the whole hierarchy on every call: a sync run that
-     * maps many posts should use {@link #categoryTree()} once instead.
-     */
-    public Mono<String> topCategory(PostView post) {
-        if (post.categoryNames().isEmpty()) {
-            return Mono.empty();
-        }
-        return categoryTree().flatMap(tree -> Mono.justOrEmpty(tree.topOf(post)));
     }
 
     /**

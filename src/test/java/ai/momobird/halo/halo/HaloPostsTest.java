@@ -128,7 +128,7 @@ class HaloPostsTest {
     }
 
     @Test
-    void listAllReadsPageAfterPageInFixedSizedPages() {
+    void listPageAsksForOneFixedSizedSortedPage() {
         when(client.listBy(eq(Post.class), any(ListOptions.class), any(PageRequest.class)))
             .thenAnswer(call -> {
                 PageRequest request = call.getArgument(2);
@@ -137,30 +137,27 @@ class HaloPostsTest {
                 return Mono.just(new ListResult<>(page, 2, 5, items));
             });
 
-        List<PostView> all = posts.listAll().collectList().block();
+        HaloPosts.Page second = posts.listPage(2).block();
+        HaloPosts.Page last = posts.listPage(3).block();
 
-        assertThat(all).extracting(PostView::name).containsExactly("p1", "p2", "p3", "p4", "p5");
+        assertThat(second.items()).extracting(PostView::name).containsExactly("p3", "p4");
+        assertThat(second.hasNext()).isTrue();
+        assertThat(last.items()).extracting(PostView::name).containsExactly("p5");
+        assertThat(last.hasNext()).isFalse();
         ArgumentCaptor<PageRequest> pages = ArgumentCaptor.forClass(PageRequest.class);
-        verify(client, org.mockito.Mockito.times(3)).listBy(eq(Post.class), any(ListOptions.class), pages.capture());
-        assertThat(pages.getAllValues()).extracting(PageRequest::getPageNumber).containsExactly(1, 2, 3);
+        verify(client, org.mockito.Mockito.times(2)).listBy(eq(Post.class), any(ListOptions.class), pages.capture());
+        assertThat(pages.getAllValues()).extracting(PageRequest::getPageNumber).containsExactly(2, 3);
         assertThat(pages.getAllValues()).extracting(PageRequest::getPageSize).containsOnly(HaloPosts.PAGE_SIZE);
         assertThat(pages.getAllValues().get(0).getSort().isSorted()).isTrue();
     }
 
     @Test
-    void listAllOfNothingIsEmpty() {
-        when(client.listBy(eq(Post.class), any(ListOptions.class), any(PageRequest.class)))
-            .thenReturn(Mono.just(ListResult.emptyResult()));
-        assertThat(posts.listAll().collectList().block()).isEmpty();
-        verify(client).listBy(eq(Post.class), any(ListOptions.class), any(PageRequest.class));
-    }
-
-    @Test
-    void listAllStopsWhenAPageComesBackEmptyEvenIfTheTotalPromisesMore() {
+    void anEmptyPageEndsTheListingEvenIfTheTotalPromisesMore() {
         when(client.listBy(eq(Post.class), any(ListOptions.class), any(PageRequest.class)))
             .thenReturn(Mono.just(new ListResult<>(1, 100, 500, new ArrayList<Post>())));
-        assertThat(posts.listAll().collectList().block()).isEmpty();
-        verify(client).listBy(eq(Post.class), any(ListOptions.class), any(PageRequest.class));
+        HaloPosts.Page page = posts.listPage(1).block();
+        assertThat(page.items()).isEmpty();
+        assertThat(page.hasNext()).isFalse();
     }
 
     @Test
@@ -205,21 +202,6 @@ class HaloPostsTest {
         PostView removed = PostView.builder().name("p").categoryNames(List.of("gone")).build();
         assertThat(tree.topOf(child)).contains("技术");
         assertThat(tree.topOf(removed)).isEmpty();
-    }
-
-    @Test
-    void topCategoryOfAPostWithoutCategoriesAsksNobody() {
-        PostView none = PostView.builder().name("p").build();
-        assertThat(posts.topCategory(none).block()).isNull();
-        verify(client, never()).listBy(eq(Category.class), any(ListOptions.class), any(PageRequest.class));
-    }
-
-    @Test
-    void topCategoryIsTheRootsDisplayName() {
-        when(client.listBy(eq(Category.class), any(ListOptions.class), any(PageRequest.class)))
-            .thenReturn(Mono.just(new ListResult<>(1, 100, 2, List.of(category("a", "技术", "b"), category("b", "Java")))));
-        PostView view = PostView.builder().name("p").categoryNames(List.of("b")).build();
-        assertThat(posts.topCategory(view).block()).isEqualTo("技术");
     }
 
     @Test
