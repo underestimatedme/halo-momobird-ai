@@ -35,6 +35,8 @@ public class FakeConnect implements ConnectApi {
     public boolean widgetNotReady;
     public final Map<String, String> rejectIds = new HashMap<>();
     public final Set<String> tooLargeIds = new HashSet<>();
+    /** Ids a delete call answers nothing for (a server that leaves them out of the results). */
+    public final Set<String> deleteNoResult = new HashSet<>();
     /** Keeps handing back the same cursor: a broken server. */
     public boolean repeatCursor;
     /** Called with each upsert batch before it is answered. */
@@ -187,6 +189,9 @@ public class FakeConnect implements ConnectApi {
             ObjectNode data = JSON.createObjectNode();
             ArrayNode results = data.putArray("results");
             for (String id : ids) {
+                if (deleteNoResult.contains(id)) {
+                    continue;
+                }
                 boolean had = remote.containsKey(id);
                 remote.remove(id);
                 results.addObject().put("external_id", id).put("status", had ? "deleted" : "not_found");

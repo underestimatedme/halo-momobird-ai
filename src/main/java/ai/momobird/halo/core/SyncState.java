@@ -53,9 +53,17 @@ public final class SyncState {
         failures.put(name, new Failure(name, PostId.of(name), clean(title), clean(code), at));
     }
 
+    /** {@code title} may be null when the post could not be read; a title already known is kept. */
     public synchronized void retryLater(String name, String title, String error, Instant at) {
+        String known = title;
+        if (known == null && pending.containsKey(name)) {
+            known = pending.get(name).title();
+        }
+        if (known == null && failures.containsKey(name)) {
+            known = failures.get(name).title();
+        }
         failures.remove(name);
-        pending.put(name, new Pending(name, PostId.of(name), clean(title), clean(error), at));
+        pending.put(name, new Pending(name, PostId.of(name), clean(known), clean(error), at));
     }
 
     /** The post went through, or no longer needs to: it leaves both lists. */

@@ -24,6 +24,24 @@ class RedactorTest {
     }
 
     @Test
+    void leavesTheBarePrefixInAnExplanation() {
+        String hint = "连接密钥格式不对：应以 mbk_ 开头，只含字母、数字、下划线和短横线";
+        assertThat(Redactor.clean(hint, null)).isEqualTo(hint);
+        assertThat(Redactor.clean("prefix mbk_", null)).isEqualTo("prefix mbk_");
+        // one character after the prefix is already a token
+        assertThat(Redactor.clean("x mbk_a y", null)).isEqualTo("x *** y");
+        assertThat(Redactor.clean("x mbk__ y", null)).isEqualTo("x *** y");
+        assertThat(Redactor.clean("x mbk_-abc y", null)).isEqualTo("x *** y");
+    }
+
+    @Test
+    void theSettingsKeyHintSurvivesRedaction() {
+        Settings wrong = Settings.of("https://api.example.com", "abc123secret", false, null, null, null);
+        String problem = wrong.validate().get(0);
+        assertThat(Redactor.clean(problem, "abc123secret")).isEqualTo(problem).contains("mbk_");
+    }
+
+    @Test
     void removesAKeyThatDoesNotStartWithMbk() {
         assertThat(Redactor.clean("token=abc.def+ghi", "abc.def+ghi")).isEqualTo("token=***");
     }

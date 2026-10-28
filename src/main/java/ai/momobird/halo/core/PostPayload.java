@@ -64,7 +64,8 @@ public record PostPayload(
         return later == null ? null : ISO_UTC_MILLIS.format(later);
     }
 
-    private static String url(String siteBase, String permalink) {
+    /** The post's address, or null when it cannot be built (no permalink, or a relative one and no site address). */
+    static String url(String siteBase, String permalink) {
         if (permalink == null || permalink.isBlank()) {
             return null;
         }

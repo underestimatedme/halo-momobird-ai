@@ -56,6 +56,7 @@ public final class Reconciler {
     public static final int PRUNE_GUARD_MIN_REMOVALS = 10;
     public static final String SOURCE_KIND = "halo";
 
+    private static final String NO_URL = "文章还没有链接（Halo 尚未生成固定链接），稍后再试";
     private static final Pattern CODE_PATTERN = Pattern.compile("^[A-Za-z0-9_.-]{1,64}$");
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -138,6 +139,14 @@ public final class Reconciler {
                     continue;
                 }
                 if (payload.isEmpty()) {
+                    if (PostPayload.url(external, view.permalink()) == null) {
+                        // No address yet (Halo has not built the permalink): never a reason to take
+                        // a public post down. Keep it and try again later.
+                        local.add(PostId.of(name));
+                        run.failed++;
+                        state.retryLater(name, view.title(), NO_URL, clock.instant());
+                        continue;
+                    }
                     run.skipped++;
                     state.settled(name);
                     continue;
@@ -148,8 +157,6 @@ public final class Reconciler {
         }
         batch.flush();
         run.local = local.size();
-        // The listing went through: failures of posts that are gone go away.
-        state.keepOnly(seen);
 
         if (run.planRequiredCount > 0) {
             state.planRequired(true);
@@ -178,6 +185,8 @@ public final class Reconciler {
                 removals.removeIf(missed::contains);
             }
         }
+        // The listings went through: failures of posts that are gone go away.
+        state.keepOnly(seen);
         boolean held = false;
         if (!confirm && run.wrongKind) {
             run.heldRemovals = removals.size();
@@ -206,20 +215,28 @@ public final class Reconciler {
         }
     }
 
-    /** Ids of posts the rules let through that the first listing never saw. */
+    /**
+     * Ids of posts the rules let through that the first listing never saw. Every name the second
+     * listing sees is added to {@code seen}, so their retry state is kept.
+     */
     private Set<String> missedByListing(Set<String> seen) {
         Set<String> missed = new HashSet<>();
+        Set<String> names = new HashSet<>();
         try (Stream<PostView> all = posts.all()) {
             Iterator<PostView> it = all.iterator();
             while (it.hasNext()) {
                 PostView view = it.next();
                 String name = view.name();
-                if (name != null && !name.isEmpty() && !seen.contains(name)
-                    && SyncRules.exclusion(view, clock.instant()).isEmpty()) {
+                if (name == null || name.isEmpty()) {
+                    continue;
+                }
+                names.add(name);
+                if (!seen.contains(name) && SyncRules.exclusion(view, clock.instant()).isEmpty()) {
                     missed.add(PostId.of(name));
                 }
             }
         }
+        seen.addAll(names);
         return missed;
     }
 
@@ -286,6 +303,14 @@ public final class Reconciler {
 
     /** Takes posts down, 100 per call. Errors propagate: the run fails. */
     private void remove(Run run, List<String> ids) {
+        remove(run, ids, new HashSet<>());
+    }
+
+    /**
+     * Takes posts down, 100 per call, adding to {@code confirmed} every id MomoBird answered
+     * {@code deleted} or {@code not_found} for (only those leave the retry lists). Errors propagate.
+     */
+    private void remove(Run run, List<String> ids, Set<String> confirmed) {
         for (int start = 0; start < ids.size(); start += DELETE_BATCH_SIZE) {
             List<String> batch = ids.subList(start, Math.min(ids.size(), start + DELETE_BATCH_SIZE));
             JsonNode response = client.delete(new ArrayList<>(batch));
@@ -302,6 +327,7 @@ public final class Reconciler {
                 }
             }
             state.settledIds(gone);
+            confirmed.addAll(gone);
         }
     }
 
@@ -352,7 +378,38 @@ public final class Reconciler {
                 unique.add(name);
             }
         }
+        Map<String, String> titles = new HashMap<>();
+        try {
+            incremental(run, unique, titles);
+        } catch (RuntimeException e) {
+            // The names were already taken off the event queue: none may be lost.
+            String error = "增量同步时遇到意外错误：" + describe(e);
+            run.fail(error);
+            Set<String> refused = new HashSet<>();
+            for (SyncState.Failure failure : state.failures()) {
+                refused.add(failure.name());
+            }
+            for (String name : unique) {
+                if (!refused.contains(name)) {
+                    state.retryLater(name, titles.get(name), error, clock.instant());
+                }
+            }
+        }
+
+        if (run.planRequiredCount > 0) {
+            state.planRequired(true);
+            run.fail("套餐已到期，同步需要专业版或试用：" + run.planRequiredCount + " 篇文章没有推送");
+        } else if (run.pushed + run.unchanged > 0) {
+            state.planRequired(false);
+        }
+        SyncReport report = run.finish(clock.instant());
+        state.recordIncremental(report);
+        return report;
+    }
+
+    private void incremental(Run run, Set<String> unique, Map<String, String> titles) {
         List<String> takeDown = new ArrayList<>();
+        List<PostView> noUrl = new ArrayList<>();
         Batch batch = new Batch(run, false);
         CategoryTree tree = null;
         String external = null;
@@ -367,6 +424,7 @@ public final class Reconciler {
                     takeDown.add(name);
                     continue;
                 }
+                titles.put(name, view.title());
                 if (tree == null) {
                     tree = posts.categoryTree();
                 }
@@ -377,42 +435,55 @@ public final class Reconciler {
                 payload = map(view, tree, external);
             } catch (RuntimeException e) {
                 run.failed++;
-                state.retryLater(name, null, "读取文章失败：" + describe(e), clock.instant());
+                state.retryLater(name, titles.get(name), "读取文章失败：" + describe(e), clock.instant());
                 continue;
             }
             if (payload.isEmpty()) {
-                takeDown.add(name);
+                if (PostPayload.url(external, view.permalink()) == null) {
+                    // A public post without an address (Halo's external address unset, or no
+                    // permalink yet) is never taken down for that.
+                    noUrl.add(view);
+                } else {
+                    takeDown.add(name);
+                }
                 continue;
             }
             batch.add(new Item(name, payload.get()));
         }
         batch.flush();
 
+        if (!noUrl.isEmpty()) {
+            // Records originBlocked and the reason when the external address is missing or differs.
+            incrementalPushAllowed(run);
+            if (!run.originBlocked) {
+                for (PostView view : noUrl) {
+                    run.failed++;
+                    state.retryLater(view.name(), view.title(), run.error == null ? NO_URL : run.error,
+                        clock.instant());
+                }
+            }
+        }
+
         if (!takeDown.isEmpty()) {
             List<String> ids = new ArrayList<>();
             for (String name : takeDown) {
                 ids.add(PostId.of(name));
             }
+            Set<String> confirmed = new HashSet<>();
+            String problem = null;
             try {
-                remove(run, ids);
-                takeDown.forEach(state::settled);
+                remove(run, ids, confirmed);
             } catch (ConnectError e) {
                 run.fail(clean(e.getMessage()));
-                for (String name : takeDown) {
-                    state.retryLater(name, null, "撤下失败：" + clean(e.getMessage()), clock.instant());
+                problem = "撤下失败：" + clean(e.getMessage());
+            }
+            for (String name : takeDown) {
+                if (!confirmed.contains(PostId.of(name))) {
+                    state.retryLater(name, titles.get(name),
+                        problem == null ? "MomoBird 没有确认撤下，稍后再试" : problem, clock.instant());
                 }
             }
         }
-
-        if (run.planRequiredCount > 0) {
-            state.planRequired(true);
-            run.fail("套餐已到期，同步需要专业版或试用：" + run.planRequiredCount + " 篇文章没有推送");
-        } else if (run.pushed + run.unchanged > 0) {
-            state.planRequired(false);
-        }
-        SyncReport report = run.finish(clock.instant());
-        state.recordIncremental(report);
-        return report;
     }
 
     /**

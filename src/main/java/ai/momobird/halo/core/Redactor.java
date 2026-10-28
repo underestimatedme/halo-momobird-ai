@@ -9,7 +9,9 @@ import java.util.regex.Pattern;
  */
 public final class Redactor {
 
-    private static final Pattern KEY_SHAPE = Pattern.compile("mbk_[A-Za-z0-9_-]*");
+    // At least one character after the prefix: a bare "mbk_" (as in "应以 mbk_ 开头") is an
+    // explanation, not a key, and stays readable.
+    private static final Pattern KEY_SHAPE = Pattern.compile("mbk_[A-Za-z0-9_-]+");
     private static final String MASK = "***";
 
     private Redactor() {

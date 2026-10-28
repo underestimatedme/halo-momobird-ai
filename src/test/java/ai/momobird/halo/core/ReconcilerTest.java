@@ -440,6 +440,27 @@ class ReconcilerTest {
     }
 
     @Test
+    @DisplayName("retry state of a post only the second listing saw is kept")
+    void retryStateOfAPostTheSecondListingSawIsKept() {
+        int[] listings = {0};
+        FakePosts shifting = new FakePosts() {
+            @Override
+            public java.util.stream.Stream<PostView> all() {
+                listings[0]++;
+                return listings[0] == 1 ? super.all().filter(v -> !v.name().equals("p001")) : super.all();
+            }
+        };
+        shifting.addPublished("p000").addPublished("p001");
+        client.seedPosts("p000", "p001");
+        state.retryLater("p001", "标题 p001", "连不上 MomoBird", NOW);
+
+        new Reconciler(client, shifting, settings(false), state, clock).fullSync(false);
+
+        assertThat(listings[0]).isEqualTo(2);
+        assertThat(state.pending()).extracting(SyncState.Pending::name).containsExactly("p001");
+    }
+
+    @Test
     @DisplayName("nothing to remove means no second listing")
     void noRemovalsNoSecondListing() {
         int[] listings = {0};
@@ -529,6 +550,88 @@ class ReconcilerTest {
         assertThat(report.guardTripped()).isFalse();
         // no status call is needed to take a post down
         assertThat(client.statusCalls).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("a missing site address never takes down a public post")
+    void aMissingSiteAddressNeverTakesDownAPublicPost() {
+        posts.addPublished("p");
+        posts.addPublished("q");
+        posts.change("q", view -> view.toBuilder().visible("PRIVATE").build());
+        client.seedPosts("p", "q");
+        posts.externalUrl = null;
+
+        SyncReport report = reconciler(false).syncPosts(List.of("p", "q"));
+
+        // the private post still goes (single take-downs need no address)
+        assertThat(client.deletedIds()).containsExactly(PostId.of("q"));
+        assertThat(client.remote).containsKey(PostId.of("p"));
+        assertThat(client.upserts).isEmpty();
+        assertThat(report.originBlocked()).isTrue();
+        assertThat(report.origin().siteOrigin()).isNull();
+        assertThat(report.error()).contains("外部访问地址").contains("halo.external-url");
+        assertThat(report.removed()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a public post without a permalink yet is kept and retried")
+    void aPostWithoutAPermalinkIsKeptAndRetried() {
+        posts.add(FakePosts.published("p").toBuilder().permalink(null).build());
+        client.seedPosts("p");
+
+        reconciler(false).syncPosts(List.of("p"));
+        assertThat(client.deletes).isEmpty();
+        assertThat(state.pending()).extracting(SyncState.Pending::name).containsExactly("p");
+
+        SyncReport full = full(true);
+        assertThat(client.deletes).isEmpty();
+        assertThat(client.remote).containsKey(PostId.of("p"));
+        assertThat(full.local()).isEqualTo(1);
+        assertThat(state.pending()).extracting(SyncState.Pending::name).containsExactly("p");
+    }
+
+    @Test
+    @DisplayName("an incremental take-down settles only the posts MomoBird confirmed")
+    void anIncrementalTakeDownSettlesOnlyConfirmedPosts() {
+        posts.addPublished("a").addPublished("b");
+        posts.change("a", view -> view.toBuilder().visible("PRIVATE").build());
+        posts.change("b", view -> view.toBuilder().visible("PRIVATE").build());
+        client.seedPosts("a", "b");
+        state.retryLater("a", "标题 a", "撤下失败", NOW);
+        state.retryLater("b", "标题 b", "撤下失败", NOW);
+        client.deleteNoResult.add(PostId.of("b"));
+
+        reconciler(false).syncPosts(List.of("a", "b"));
+
+        assertThat(state.pending()).extracting(SyncState.Pending::name).containsExactly("b");
+    }
+
+    @Test
+    @DisplayName("an unexpected error in an incremental run keeps its posts for retry")
+    void anUnexpectedErrorKeepsThePostsForRetry() {
+        int[] calls = {0};
+        FakePosts flaky = new FakePosts() {
+            @Override
+            public String externalUrl() {
+                calls[0]++;
+                if (calls[0] > 1) {
+                    throw new IllegalStateException("halo broke " + KEY);
+                }
+                return super.externalUrl();
+            }
+        };
+        flaky.addPublished("p1").addPublished("p2");
+
+        SyncReport report = new Reconciler(client, flaky, settings(false), state, clock)
+            .syncPosts(List.of("p1", "p2"));
+
+        assertThat(report.error()).isNotNull().doesNotContain(KEY).doesNotContain("mbk_H");
+        assertThat(state.pending()).extracting(SyncState.Pending::name).containsExactlyInAnyOrder("p1", "p2");
+        assertThat(state.pending()).allSatisfy(p -> {
+            assertThat(p.error()).doesNotContain(KEY);
+            assertThat(p.title()).isEqualTo("标题 " + p.name());
+        });
+        assertThat(state.lastIncremental()).isSameAs(report);
     }
 
     @Test
