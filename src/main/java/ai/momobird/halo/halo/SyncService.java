@@ -1,9 +1,12 @@
 package ai.momobird.halo.halo;
 
 import ai.momobird.halo.SettingsLoader;
+import ai.momobird.halo.core.AnnotationWatch;
+import ai.momobird.halo.core.CategoryTree;
 import ai.momobird.halo.core.ConnectApi;
 import ai.momobird.halo.core.ConnectClient;
 import ai.momobird.halo.core.PostSource;
+import ai.momobird.halo.core.PostView;
 import ai.momobird.halo.core.Reconciler;
 import ai.momobird.halo.core.Redactor;
 import ai.momobird.halo.core.Settings;
@@ -17,6 +20,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,6 +30,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.DisposableBean;
@@ -45,6 +50,9 @@ import reactor.core.publisher.Mono;
  *   <li>{@link #fullSync}: the reconcile, run {@link #STARTUP_DELAY} after the plugin starts,
  *       every day at {@link #DAILY_AT} server time, and on demand from the admin page.
  *   <li>{@link #retryFailures}: sends the refused and pending posts again.
+ *   <li>{@link #postSeen}: a post was updated in a way Halo publishes no event for (its
+ *       annotations, see {@link PostWatcher}); it is queued like an event only when the exclude
+ *       mark or the restricted-reading switch differ from what the engine last read.
  * </ul>
  *
  * <p>Settings are read again at the start of every run, so a changed key or address applies to
@@ -113,6 +121,8 @@ public class SyncService implements SmartLifecycle, DisposableBean {
     private final Clock clock;
     private final Duration batchPause;
     private final SyncState state = new SyncState();
+    /** What the engine last read of each post's sync-relevant annotations. */
+    private final AnnotationWatch annotations = new AnnotationWatch();
 
     /** Post name → when its last event becomes due. */
     private final Map<String, Long> due = new ConcurrentHashMap<>();
@@ -138,7 +148,8 @@ public class SyncService implements SmartLifecycle, DisposableBean {
 
     private SyncService(PostSource posts, Supplier<Settings> settings, Function<Settings, ConnectApi> clients,
                         Supplier<Scheduler> schedulerFactory, Clock clock, Duration batchPause) {
-        this.posts = posts;
+        // Every post the engine reads (listed or re-read) becomes the baseline for postSeen.
+        this.posts = new Recording(posts, annotations);
         this.settings = settings;
         this.clients = clients;
         this.schedulerFactory = schedulerFactory;
@@ -165,6 +176,28 @@ public class SyncService implements SmartLifecycle, DisposableBean {
             scheduler().schedule(this::drainDue, DEBOUNCE);
         } catch (RejectedExecutionException e) {
             // stopping: the full sync at the next start covers it
+        }
+    }
+
+    /**
+     * Halo updated a post (any update, seen by {@link PostWatcher}). Queued like an event only when
+     * its exclude mark or restricted-reading switch changed: Halo publishes no post event for an
+     * annotation change. Safe to call from any thread; does nothing once the plugin stopped.
+     */
+    public void postSeen(String postName, Map<String, String> postAnnotations) {
+        if (stopped || postName == null || postName.isEmpty()) {
+            return;
+        }
+        if (annotations.changed(postName, postAnnotations)) {
+            log.debug("[MomoBird] 文章元数据变化 {}", postName);
+            enqueue(postName);
+        }
+    }
+
+    /** The post no longer exists (its deletion has its own event). */
+    public void postGone(String postName) {
+        if (!stopped) {
+            annotations.forget(postName);
         }
     }
 
@@ -329,6 +362,7 @@ public class SyncService implements SmartLifecycle, DisposableBean {
             current = scheduler;
         }
         due.clear();
+        annotations.clear();
         if (current != null) {
             current.shutdown();
         }
@@ -402,5 +436,50 @@ public class SyncService implements SmartLifecycle, DisposableBean {
         String text = message == null || message.isBlank() ? e.getClass().getSimpleName() : message;
         // A usable key always has the mbk_ shape, which Redactor removes without being told the key.
         return Redactor.clean(text, null).replaceAll("\\s+", " ").strip();
+    }
+
+    // ================================================================== reads
+
+    /** The engine's post source, remembering the annotations of every post it reads. */
+    private static final class Recording implements PostSource {
+
+        private final PostSource source;
+        private final AnnotationWatch watch;
+
+        Recording(PostSource source, AnnotationWatch watch) {
+            this.source = source;
+            this.watch = watch;
+        }
+
+        @Override
+        public Stream<PostView> all() {
+            return source.all().peek(view -> watch.record(view.name(), view.annotations()));
+        }
+
+        @Override
+        public Optional<PostView> get(String name) {
+            Optional<PostView> view = source.get(name);
+            if (view.isPresent()) {
+                watch.record(name, view.get().annotations());
+            } else {
+                watch.forget(name);
+            }
+            return view;
+        }
+
+        @Override
+        public String releaseHtml(String name) {
+            return source.releaseHtml(name);
+        }
+
+        @Override
+        public CategoryTree categoryTree() {
+            return source.categoryTree();
+        }
+
+        @Override
+        public String externalUrl() {
+            return source.externalUrl();
+        }
     }
 }

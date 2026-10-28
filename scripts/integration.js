@@ -506,6 +506,39 @@ async function main() {
     return (await mock.summary(before)).join('; ');
   });
 
+  // Halo publishes no post event when only annotations change; the plugin's watcher on posts catches it.
+  async function annotationRound(name, on, wantedIn) {
+    const before = await mock.count();
+    const seenBefore = logCount(halo, '文章元数据变化 ' + name);
+    const eventsBefore = logCount(halo, '收到文章事件 \\S+ ' + name);
+    const started = Date.now();
+    await halo.patchPost(name, (p) => {
+      p.metadata.annotations = Object.assign({}, p.metadata.annotations || {});
+      if (on) p.metadata.annotations['momobird.ai/exclude'] = 'true';
+      else delete p.metadata.annotations['momobird.ai/exclude'];
+    });
+    await waitFor(name + (wantedIn ? ' to be pushed' : ' to be taken down'), async () => ((await idsNow()).indexOf(postId(name)) !== -1) === wantedIn, { timeout: 20000, interval: 250 })
+      .catch(async () => fail(name + ' exclude=' + on + ': the mock ' + (wantedIn ? 'does not hold' : 'still holds') + ' it after 20 s; ' + (await mock.summary(before)).join('; ')));
+    const seconds = (Date.now() - started) / 1000;
+    await sleep(2500);
+    const requests = await mock.summary(before);
+    must(seconds <= 12, name + ' took ' + seconds.toFixed(1) + ' s');
+    must(!requests.some((r) => /^GET \/posts/.test(r)), 'a full sync ran (it lists MomoBird\'s posts): ' + requests.join('; '));
+    const seen = logCount(halo, '文章元数据变化 ' + name) - seenBefore;
+    must(seen >= 1, 'the watcher did not log the annotation change of ' + name);
+    const events = logCount(halo, '收到文章事件 \\S+ ' + name) - eventsBefore;
+    return name + (on ? ' +exclude: taken down' : ' -exclude: pushed') + ' in ' + seconds.toFixed(1) + ' s (' + requests.join('; ') + '; watcher lines ' + seen + ', Halo post events ' + events + ')';
+  }
+  await step('S.11', 'add momobird.ai/exclude to a published, synced post: taken down within seconds without a full sync; remove it: pushed again', async () => {
+    const lines = [];
+    lines.push(await annotationRound(NEW.a, true, false));
+    lines.push(await annotationRound(NEW.a, false, true));
+    // A post nobody touched since the plugin started (the startup full sync is its baseline): excluded from the start.
+    lines.push(await annotationRound(Q.excl, false, true));
+    lines.push(await annotationRound(Q.excl, true, false));
+    return lines.join('\n');
+  });
+
   await step('5', 'all five post events reach the listener (debug log lines)', async () => {
     const names = ['PostPublishedEvent', 'PostUpdatedEvent', 'PostUnpublishedEvent', 'PostDeletedEvent', 'PostVisibleChangedEvent'];
     const text = halo.logs();

@@ -315,4 +315,94 @@ class SyncServiceTest {
         assertThat(seenRunning[0]).isTrue();
         assertThat(service.state().running()).isFalse();
     }
+
+    // ------------------------------------------------------------------ annotation changes (no Halo event)
+
+    private static final Map<String, String> EXCLUDED = Map.of("momobird.ai/exclude", "true");
+
+    private void exclude(String name, boolean on) {
+        posts.change(name, v -> v.toBuilder().annotations(on ? EXCLUDED : Map.of()).build());
+    }
+
+    @Test
+    @DisplayName("adding the exclude mark to a synced post takes it down; removing it pushes it again")
+    void anExcludeMarkChangeIsSyncedWithoutAFullSync() {
+        posts.addPublished("p1");
+        event("p1");
+        String id = PostId.of("p1");
+        assertThat(client.remote).containsKey(id);
+
+        exclude("p1", true);
+        service.postSeen("p1", EXCLUDED);
+        scheduler.advance(SyncService.DEBOUNCE);
+        assertThat(client.deletedIds()).containsExactly(id);
+        assertThat(client.remote).doesNotContainKey(id);
+
+        exclude("p1", false);
+        service.postSeen("p1", Map.of());
+        scheduler.advance(SyncService.DEBOUNCE);
+        assertThat(client.remote).containsKey(id);
+        assertThat(client.pushedIds()).containsExactly(id, id);
+        assertThat(service.state().lastFull()).isNull();
+    }
+
+    @Test
+    @DisplayName("the full sync is the baseline: removing a mark from a post untouched since start pushes it")
+    void theFullSyncSeedsTheBaseline() {
+        posts.addPublished("p1");
+        exclude("p1", true);
+        await(service.fullSync(false));
+        String id = PostId.of("p1");
+        assertThat(client.remote).doesNotContainKey(id);
+
+        exclude("p1", false);
+        service.postSeen("p1", Map.of());
+        scheduler.advance(SyncService.DEBOUNCE);
+
+        assertThat(client.remote).containsKey(id);
+    }
+
+    @Test
+    @DisplayName("updates that do not touch the marks do not reach the engine")
+    void otherUpdatesAreNoise() {
+        posts.addPublished("p1");
+        event("p1");
+        int reads = posts.gets.get();
+
+        service.postSeen("p1", Map.of("content.halo.run/last-released-snapshot", "s2"));
+        service.postSeen("p2-never-read", Map.of("other", "x"));
+        scheduler.advance(Duration.ofSeconds(10));
+
+        assertThat(posts.gets).hasValue(reads);
+        assertThat(client.upserts).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a mark on a post the engine has not read yet gets a look")
+    void aMarkOnAnUnreadPostGetsALook() {
+        posts.addPublished("p1");
+        exclude("p1", true);
+
+        service.postSeen("p1", EXCLUDED);
+        scheduler.advance(SyncService.DEBOUNCE);
+
+        assertThat(client.deletedIds()).containsExactly(PostId.of("p1"));
+    }
+
+    @Test
+    @DisplayName("after the plugin stopped, annotation changes do nothing")
+    void afterStopAnnotationChangesDoNothing() {
+        posts.addPublished("p1");
+        event("p1");
+        int reads = posts.gets.get();
+        service.stop();
+
+        exclude("p1", true);
+        service.postSeen("p1", EXCLUDED);
+        service.postGone("p1");
+        scheduler.advance(Duration.ofSeconds(10));
+
+        assertThat(posts.gets).hasValue(reads);
+        assertThat(client.deletedIds()).isEmpty();
+    }
 }
