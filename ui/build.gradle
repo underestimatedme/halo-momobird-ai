@@ -1,0 +1,39 @@
+plugins {
+    id 'base'
+    id "com.github.node-gradle.node" version "7.1.0"
+}
+
+group 'ai.momobird.halo.ui'
+
+node {
+    // package.json pins pnpm@9.15.9. Without this the plugin installs the newest pnpm,
+    // which then fails to switch to the pinned version.
+    pnpmVersion = '9.15.9'
+}
+
+tasks.register('buildFrontend', PnpmTask) {
+    group = 'build'
+    description = 'Builds the UI project using pnpm.'
+    args = ['build']
+    dependsOn tasks.named('pnpmInstall')
+    inputs.dir(layout.projectDirectory.dir('src'))
+    inputs.files(fileTree(
+            dir: layout.projectDirectory,
+            includes: ['*.cjs', '*.ts', '*.js', '*.json', '*.yaml']))
+    outputs.dir(layout.buildDirectory.dir('dist'))
+}
+
+tasks.register('pnpmCheck', PnpmTask) {
+    group = 'verification'
+    description = 'Runs unit tests using pnpm.'
+    args = ['test:unit']
+    dependsOn tasks.named('pnpmInstall')
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('pnpmCheck')
+}
+
+tasks.named('assemble') {
+    dependsOn tasks.named('buildFrontend')
+}

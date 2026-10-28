@@ -1,0 +1,22 @@
+# Refer https://docs.halo.run/developer-guide/plugin/basics/manifest
+
+apiVersion: plugin.halo.run/v1alpha1
+kind: Plugin
+metadata:
+  name: momobird-ai
+spec:
+  enabled: true
+  version: 0.1.0
+  requires: ">=2.17.0"
+  author:
+    name: MomoBird
+    website: https://momobird.com
+  logo: logo.png
+  homepage: https://github.com/underestimatedme/halo-momobird-ai#readme
+  repo: https://github.com/underestimatedme/halo-momobird-ai
+  issues: https://github.com/underestimatedme/halo-momobird-ai/issues
+  displayName: "MomoBird AI"
+  description: "把 Halo 文章同步到 MomoBird 知识库，并在站点上提供 AI 问答助手和文章播客。"
+  license:
+    - name: "GPL-3.0"
+      url: "https://github.com/underestimatedme/halo-momobird-ai/blob/main/LICENSE"
