@@ -1,0 +1,19 @@
+apiVersion: plugin.halo.run/v1alpha1
+kind: ExtensionDefinition
+metadata:
+  name: momobird-ai-widget-head-processor
+spec:
+  className: ai.momobird.halo.halo.WidgetHeadProcessor
+  extensionPointName: template-head-processor
+  displayName: "MomoBird 问答助手"
+  description: "在站点每个页面的页头加载 MomoBird 问答助手脚本（只在设置打开且 MomoBird 报告可用时）。"
+---
+apiVersion: plugin.halo.run/v1alpha1
+kind: ExtensionDefinition
+metadata:
+  name: momobird-ai-podcast-content-handler
+spec:
+  className: ai.momobird.halo.halo.PodcastContentHandler
+  extensionPointName: reactive-post-content-handler
+  displayName: "MomoBird 文章播客"
+  description: "在已同步文章的正文末尾加入 MomoBird 播客播放器。"

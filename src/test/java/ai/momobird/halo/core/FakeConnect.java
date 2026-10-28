@@ -29,6 +29,8 @@ public class FakeConnect implements ConnectApi {
     public String kind = "halo";
     public String siteUrl = FakePosts.SITE;
     public String widgetReason = "not_published";
+    public String sourceId = "src-halo";
+    public String publicId = "pub_1";
     public boolean planExpired;
     public RuntimeException upsertFailure;
     public RuntimeException statusFailure;
@@ -86,12 +88,12 @@ public class FakeConnect implements ConnectApi {
             }
             ObjectNode data = JSON.createObjectNode();
             ObjectNode source = data.putObject("source");
-            source.put("id", "src-halo");
+            source.put("id", sourceId);
             source.put("kind", kind);
             source.put("name", "Halo 测试来源");
             source.put("site_url", siteUrl);
             ObjectNode widget = data.putObject("widget");
-            widget.put("public_id", "pub_1");
+            widget.put("public_id", publicId);
             widget.put("available", "ok".equals(widgetReason));
             widget.put("reason", widgetReason);
             return data;
