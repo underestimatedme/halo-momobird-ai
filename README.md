@@ -75,7 +75,7 @@ Halo 是常驻的动态站点，所以同步是**持续的**：文章发布、�
 
 文章的链接是「Halo 外部访问地址 + 文章路径」，MomoBird 只接受和来源网站地址**同源**（协议、域名、端口一致，注意 `www` 和 http/https）的链接。所以：
 
-- Halo 2.21 及以上：在后台「概览」页点「外部访问地址」旁的铅笔图标，填写网站地址并保存，Halo 会自动重启。这里的值优先于启动参数 `halo.external-url`，只改启动参数不会生效。
+- Halo 2.21 及以上：在后台「概览」页点「外部访问地址」旁的铅笔图标，填写网站地址并保存，Halo 会自动重启。这里保存过的值优先于启动参数 `halo.external-url`（新装的 Halo 初始化时就会保存一次），这时只改启动参数不会生效。
 - Halo 2.17–2.20：后台没有这一项（外部访问地址只读启动参数），要在 Halo 的启动参数或配置文件里设置 `halo.external-url`，例如 `--halo.external-url=https://blog.example.com`，或者 `application.yaml` 里：
 
   ```yaml
