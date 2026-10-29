@@ -186,12 +186,16 @@ class SyncRulesTest {
             assertThat(check.ok()).isFalse();
             assertThat(check.siteOrigin()).isNull();
             assertThat(check.sourceOrigin()).isEqualTo("https://blog.example.com");
-            assertThat(check.reason()).contains("系统设置 → 基本设置 → 外部访问地址").contains("halo.external-url");
+            assertThat(check.reason()).contains("「概览」").contains("铅笔图标").contains("2.21")
+                .contains("halo.external-url").doesNotContain("基本设置");
             // says what to set it to: the source's address in MomoBird
             assertThat(check.reason()).contains("请设成 https://blog.example.com");
         }
         assertThat(SyncRules.origin("not a url", "https://blog.example.com:8443/x").reason())
             .contains("请设成 https://blog.example.com:8443");
+        assertThat(SyncRules.origin("not a url", "https://blog.example.com").reason())
+            .contains("不是有效的网址").contains("「概览」").contains("铅笔图标").contains("2.21")
+            .contains("halo.external-url").doesNotContain("基本设置");
         // without a usable source address there is nothing to suggest
         assertThat(SyncRules.origin(null, null).reason()).doesNotContain("请设成");
         assertThat(SyncRules.origin(null, "").reason()).doesNotContain("请设成");

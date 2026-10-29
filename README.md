@@ -24,7 +24,7 @@ Halo 是常驻的动态站点，所以同步是**持续的**：文章发布、�
 
 1. 在 MomoBird 控制台（https://momobird.atlaspaces.com）打开或新建一个项目，进入「知识 → 连接博客 → 博客 / 论坛」，平台选 **Halo**，网站地址填你的 Halo 外部访问地址（协议和域名，含端口，不含路径）。
 2. 复制页面上显示的**连接密钥**（以 `mbk_` 开头，只显示这一次）。
-3. 下载插件：`https://momobird.atlaspaces.com/downloads/halo-momobird-ai-0.1.0.jar`。
+3. 下载插件：`https://momobird.atlaspaces.com/downloads/halo-momobird-ai-0.1.1.jar`。
 4. 在 Halo 后台打开「插件 → 安装」，选择「本地上传」，选中下载的 jar 文件。
 5. 安装完成后在插件列表里点「启用」。
 6. 以**超级管理员**身份打开「插件 → MomoBird AI → 设置 → 连接」，在「连接密钥」一栏新建一个密钥，把第 2 步复制的连接密钥粘贴进去，再点「保存」：
@@ -75,8 +75,8 @@ Halo 是常驻的动态站点，所以同步是**持续的**：文章发布、�
 
 文章的链接是「Halo 外部访问地址 + 文章路径」，MomoBird 只接受和来源网站地址**同源**（协议、域名、端口一致，注意 `www` 和 http/https）的链接。所以：
 
-- 较新的 Halo（例如 2.27）：在后台「系统设置 → 基本设置 → 外部访问地址」填写网站地址。
-- Halo 2.17 等旧版本：后台没有这一项（外部访问地址只读启动参数），要在 Halo 的启动参数或配置文件里设置 `halo.external-url`，例如 `--halo.external-url=https://blog.example.com`，或者 `application.yaml` 里：
+- Halo 2.21 及以上：在后台「概览」页点「外部访问地址」旁的铅笔图标，填写网站地址并保存，Halo 会自动重启。这里的值优先于启动参数 `halo.external-url`，只改启动参数不会生效。
+- Halo 2.17–2.20：后台没有这一项（外部访问地址只读启动参数），要在 Halo 的启动参数或配置文件里设置 `halo.external-url`，例如 `--halo.external-url=https://blog.example.com`，或者 `application.yaml` 里：
 
   ```yaml
   halo:
@@ -160,7 +160,7 @@ Halo 后台「工具」里的 MomoBird 页面，给能管理插件的管理员�
 ## 常见问题
 
 **后台页面提示「站点地址不一致」，或者「外部访问地址还没有设置」。**
-Halo 的外部访问地址和 MomoBird 来源的网站地址不同源。常见原因：一边有 `www` 一边没有；一边 http 一边 https；端口不同；Halo 里根本没设置（2.17 要用 `halo.external-url`，见上）。改成一致后重新同步。
+Halo 的外部访问地址和 MomoBird 来源的网站地址不同源。常见原因：一边有 `www` 一边没有；一边 http 一边 https；端口不同；Halo 里根本没设置（2.21 及以上在「概览」页修改，2.17–2.20 用 `halo.external-url`，见上）。改成一致后重新同步。
 
 **401 / 「连接密钥无效或已被吊销」。**
 密钥复制错了、被重新生成或吊销，或者控制台里的来源已被删除。到控制台重新生成密钥，再由超级管理员在「插件 → MomoBird AI → 设置 → 连接」的「连接密钥」里更新（见上面「连接密钥存放在哪里」）。

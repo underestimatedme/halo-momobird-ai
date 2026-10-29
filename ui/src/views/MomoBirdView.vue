@@ -314,9 +314,9 @@ function failureText(f: { kind: string; code: string | null; message: string | n
         <template #description>
           <p>{{ originProblem.reason }}</p>
           <p class="mb-hint">
-            外部访问地址在这里设置：新版 Halo 是「系统设置 → 基本设置 → 外部访问地址」； Halo 2.17
-            等旧版本后台没有这一项，要在启动参数或配置文件里设置 <code>halo.external-url</code>。
-            改好后点「测试连接」确认。
+            外部访问地址在这里设置：Halo 2.21 及以上在后台「概览」页点外部访问地址旁的铅笔图标修改，保存后
+            Halo 会自动重启；2.17–2.20 后台没有这一项，要在启动参数或配置文件里设置
+            <code>halo.external-url</code>。改好后点「测试连接」确认。
           </p>
         </template>
       </VAlert>

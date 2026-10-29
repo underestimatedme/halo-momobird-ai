@@ -266,7 +266,8 @@ class ReconcilerTest {
         assertThat(unset.originBlocked()).isTrue();
         assertThat(unset.origin().siteOrigin()).isNull();
         assertThat(unset.origin().sourceOrigin()).isEqualTo(FakePosts.SITE);
-        assertThat(unset.error()).contains("系统设置 → 基本设置 → 外部访问地址").contains("halo.external-url");
+        assertThat(unset.error()).contains("「概览」").contains("铅笔图标").contains("2.21")
+            .contains("halo.external-url").doesNotContain("基本设置");
         assertThat(client.upserts).isEmpty();
         assertThat(client.deletes).isEmpty();
     }

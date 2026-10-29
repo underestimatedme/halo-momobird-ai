@@ -5,7 +5,7 @@
 // local mock of MomoBird's connect API (dev/mock-connect.js). Started by scripts/integration.sh,
 // which owns cleanup; this process also removes what it started when it is stopped.
 //
-//   node scripts/integration.js --version 2.17 --jar build/libs/halo-momobird-ai-0.1.0.jar \
+//   node scripts/integration.js --version 2.17 --jar build/libs/halo-momobird-ai-0.1.1.jar \
 //        --work /tmp/dir --run-id abc123 [--mock-host 127.0.0.1]
 //
 // Every check prints PASS or FAIL with its evidence; the exit status is 1 when any failed. Check

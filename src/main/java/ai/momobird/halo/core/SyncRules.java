@@ -91,10 +91,10 @@ public final class SyncRules {
         String source = originOf(sourceUrl);
         if (site == null) {
             String reason = blank(externalUrl)
-                ? "Halo 的外部访问地址还没有设置：请在 Halo 后台「系统设置 → 基本设置 → 外部访问地址」填写网站地址"
-                    + "（2.17 等旧版本后台没有这一项，要在 Halo 的启动参数或配置文件里设置 halo.external-url）"
-                : "Halo 的外部访问地址不是有效的网址：请检查 Halo 后台「系统设置 → 基本设置 → 外部访问地址」"
-                    + "（2.17 等旧版本检查启动参数或配置文件里的 halo.external-url）";
+                ? "Halo 的外部访问地址还没有设置：Halo 2.21 及以上在后台「概览」页点外部访问地址旁的铅笔图标填写网站地址"
+                    + "（保存后 Halo 会自动重启）；2.17–2.20 后台没有这一项，要在 Halo 的启动参数或配置文件里设置 halo.external-url"
+                : "Halo 的外部访问地址不是有效的网址：Halo 2.21 及以上在后台「概览」页点外部访问地址旁的铅笔图标修改；"
+                    + "2.17–2.20 检查启动参数或配置文件里的 halo.external-url";
             if (source != null) {
                 reason += "，请设成 " + source + "（MomoBird 来源的站点地址）";
             }
